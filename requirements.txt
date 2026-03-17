@@ -1,0 +1,22 @@
+
+# Visualizzazione grafica
+matplotlib>=3.0.0
+
+# Supporto per il salvataggio in formato Excel (usato da pandas.to_excel)
+openpyxl>=3.1.0
+
+# Elaborazione numerica e gestione dati
+numpy>=1.19.5
+pandas>=1.1.5
+
+# Preprocessing e modelli di machine learning
+scikit-learn>=0.24.2
+
+# Reti neurali e deep learning (TensorFlow integra Keras)
+tensorflow>=2.5.0
+
+# Barra di avanzamento per iterazioni
+tqdm>=4.62.3
+
+reportlab
+pydantic

@@ -1,0 +1,8 @@
+2026-02-06 15:17:44,371 - DEBUG - [connectionpool.py:1049] - Starting new HTTPS connection (1): cognito-idp.eu-north-1.amazonaws.com:443
+2026-02-06 15:17:44,782 - DEBUG - [connectionpool.py:544] - https://cognito-idp.eu-north-1.amazonaws.com:443 "POST / HTTP/1.1" 200 4576
+2026-02-06 15:17:44,784 - DEBUG - [connectionpool.py:1049] - Starting new HTTPS connection (1): api.aizenq.com:443
+2026-02-06 15:17:45,861 - DEBUG - [connectionpool.py:544] - https://api.aizenq.com:443 "GET /api/Price/candle/Minute/1/1/1?method=AggregatedCandlesticks&count=1440&end=2026-02-06+15%3A00%3A00.000 HTTP/1.1" 200 None
+2026-02-06 15:17:46,521 - DEBUG - [connectionpool.py:1049] - Starting new HTTPS connection (1): cognito-idp.eu-north-1.amazonaws.com:443
+2026-02-06 15:17:46,917 - DEBUG - [connectionpool.py:544] - https://cognito-idp.eu-north-1.amazonaws.com:443 "POST / HTTP/1.1" 200 4576
+2026-02-06 15:17:46,919 - DEBUG - [connectionpool.py:1049] - Starting new HTTPS connection (1): api.aizenq.com:443
+2026-02-06 15:17:49,095 - DEBUG - [connectionpool.py:544] - https://api.aizenq.com:443 "GET /api/Price/candle/Minute/1/1/1?method=AggregatedCandlesticks&count=13380&end=2026-02-06+15%3A00%3A00.000 HTTP/1.1" 200 None

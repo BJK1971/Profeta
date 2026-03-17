@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="PROFETA Universal v5.0 - Enterprise Dashboard">
+    <meta name="author" content="BilliDynamics™">
+    <meta name="theme-color" content="#06080c">
+    
+    <title>PROFETA Universal | Dashboard</title>
+    
+    <!-- Favicon -->
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' style='stop-color:%2300d4ff'/%3E%3Cstop offset='100%25' style='stop-color:%2300a8cc'/%3E%3C/linearGradient%3E%3C/defs%3E%3Ccircle cx='50' cy='50' r='45' fill='none' stroke='url(%23g)' stroke-width='6'/%3E%3Cpath d='M30 70 L50 30 L70 70 M40 55 H60' stroke='url(%23g)' stroke-width='6' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+    
+    <!-- Preload Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    
+    <!-- Styles -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
+    
+    <style>
+        /* Critical inline styles for fast first paint */
+        body { 
+            background: #06080c; 
+            color: #e8eef5;
+            opacity: 0;
+            animation: fadeInPage 0.5s ease forwards;
+        }
+        @keyframes fadeInPage {
+            to { opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+    <div class="dashboard">
+        <!-- ═══════════════════════════════════════════════════════════════════
+             HEADER
+             ═══════════════════════════════════════════════════════════════════ -->
+        <header class="header">
+            <div class="header-brand">
+                <div class="header-logo">
+                    <!-- PROFETA Logo SVG -->
+                    <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+                        <defs>
+                            <linearGradient id="logoGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                                <stop offset="0%" style="stop-color:#00d4ff"/>
+                                <stop offset="100%" style="stop-color:#00a8cc"/>
+                            </linearGradient>
+                            <filter id="glow">
+                                <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
+                                <feMerge>
+                                    <feMergeNode in="coloredBlur"/>
+                                    <feMergeNode in="SourceGraphic"/>
+                                </feMerge>
+                            </filter>
+                        </defs>
+                        <circle cx="50" cy="50" r="45" fill="none" stroke="url(#logoGradient)" stroke-width="4" filter="url(#glow)"/>
+                        <path d="M30 70 L50 30 L70 70 M40 55 H60" stroke="url(#logoGradient)" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round" filter="url(#glow)"/>
+                    </svg>
+                </div>
+                <div>
+                    <h1 class="header-title">PROFETA UNIVERSAL</h1>
+                    <div class="header-subtitle">ENTERPRISE MONITORING DASHBOARD v5.0</div>
+                </div>
+            </div>
+            
+            <div class="header-status">
+                <div class="status-indicator">
+                    <span id="status-dot" class="status-dot"></span>
+                    <span id="status-text">CONNESSIONE...</span>
+                </div>
+                
+                <div class="status-indicator">
+                    <span style="color: var(--text-tertiary);">UPTIME</span>
+                    <span id="uptime" class="mono" style="color: var(--accent-primary);">00:00:00</span>
+                </div>
+                
+                <div class="status-indicator">
+                    <span style="color: var(--text-tertiary);">ULTIMA PRED.</span>
+                    <span id="last-prediction" class="mono">—</span>
+                </div>
+                
+                <div class="header-time">
+                    <span id="header-clock">--:--:--</span>
+                </div>
+            </div>
+        </header>
+        
+        <!-- ═══════════════════════════════════════════════════════════════════
+             NAVIGATION TABS
+             ═══════════════════════════════════════════════════════════════════ -->
+        <nav class="nav-tabs">
+            <button class="nav-tab active" data-tab="overview">
+                <span>◉</span> Overview
+            </button>
+            <button class="nav-tab" data-tab="predictions">
+                <span>◎</span> Previsioni
+            </button>
+            <button class="nav-tab" data-tab="config">
+                <span>⚙</span> Configurazione
+            </button>
+        </nav>
+        
+        <!-- ═══════════════════════════════════════════════════════════════════
+             MAIN CONTENT
+             ═══════════════════════════════════════════════════════════════════ -->
+        <main class="main-content">
+            
+            <!-- ═══════════════════════════════════════════════════════════════
+                 TAB: OVERVIEW
+                 ═══════════════════════════════════════════════════════════════ -->
+            <div id="tab-overview" class="tab-content">
+                
+                <!-- Section: Metrics KPIs -->
+                <section class="mb-lg">
+                    <div class="section-header">
+                        <h2 class="section-title">Performance Metrics</h2>
+                        <div class="section-line"></div>
+                    </div>
+                    
+                    <div id="metrics-container" class="grid grid-4">
+                        <!-- Metrics cards rendered by JS -->
+                        <div class="metric-card skeleton" style="height: 100px;"></div>
+                        <div class="metric-card skeleton" style="height: 100px;"></div>
+                        <div class="metric-card skeleton" style="height: 100px;"></div>
+                        <div class="metric-card skeleton" style="height: 100px;"></div>
+                        <div class="metric-card skeleton" style="height: 100px;"></div>
+                        <div class="metric-card skeleton" style="height: 100px;"></div>
+                        <div class="metric-card skeleton" style="height: 100px;"></div>
+                        <div class="metric-card skeleton" style="height: 100px;"></div>
+                    </div>
+                </section>
+                
+                <!-- Section: Main Grid -->
+                <section class="grid grid-3 mb-lg" style="grid-template-columns: 1fr 1fr 1fr;">
+                    
+                    <!-- Latest Prediction Card -->
+                    <div class="card card-accent card-full-height">
+                        <div class="card-header">
+                            <h3 class="card-title">
+                                <span class="card-title-icon">◉</span>
+                                Ultima Previsione
+                            </h3>
+                            <span class="signal-badge hold" style="font-size: 0.65rem;">LIVE</span>
+                        </div>
+                        <div class="card-body" id="latest-prediction">
+                            <div class="loading">
+                                <div class="loading-spinner"></div>
+                                <span class="loading-text">Caricamento...</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Signals Distribution Card -->
+                    <div class="card card-full-height">
+                        <div class="card-header">
+                            <h3 class="card-title">
+                                <span class="card-title-icon">◎</span>
+                                Distribuzione Segnali
+                            </h3>
+                        </div>
+                        <div class="card-body" id="signals-summary">
+                            <div class="loading">
+                                <div class="loading-spinner"></div>
+                                <span class="loading-text">Caricamento...</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Sparkline Chart Card -->
+                    <div class="card card-full-height">
+                        <div class="card-header">
+                            <h3 class="card-title">
+                                <span class="card-title-icon">⌇</span>
+                                Trend Valori Predetti
+                            </h3>
+                        </div>
+                        <div class="card-body">
+                            <div class="chart-container">
+                                <canvas id="sparkline-chart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                    
+                </section>
+                
+            </div>
+            
+            <!-- ═══════════════════════════════════════════════════════════════
+                 TAB: PREDICTIONS - Visualizzazione Completa CSV
+                 ═══════════════════════════════════════════════════════════════ -->
+            <div id="tab-predictions" class="tab-content hidden">
+                
+                <!-- Full-screen CSV Viewer -->
+                <div class="csv-viewer-container">
+                    
+                    <!-- Header Bar -->
+                    <div class="csv-viewer-header">
+                        <div class="csv-viewer-title">
+                            <span class="csv-icon">◉</span>
+                            <span class="csv-filename" id="csv-filename">real_time_predictions.csv</span>
+                            <span class="csv-badge live">LIVE DATA</span>
+                        </div>
+                        <div class="csv-viewer-stats">
+                            <div class="csv-stat">
+                                <span class="csv-stat-value" id="csv-total-rows">—</span>
+                                <span class="csv-stat-label">RIGHE</span>
+                            </div>
+                            <div class="csv-stat">
+                                <span class="csv-stat-value" id="csv-total-cols">—</span>
+                                <span class="csv-stat-label">COLONNE</span>
+                            </div>
+                            <div class="csv-stat">
+                                <span class="csv-stat-value" id="csv-last-update">—</span>
+                                <span class="csv-stat-label">ULTIMO AGG.</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Table Container -->
+                    <div class="csv-table-wrapper" id="csv-table-wrapper">
+                        <div class="loading">
+                            <div class="loading-spinner"></div>
+                            <span class="loading-text">Caricamento dati CSV...</span>
+                        </div>
+                    </div>
+                    
+                </div>
+                
+            </div>
+            
+            <!-- ═══════════════════════════════════════════════════════════════
+                 TAB: CONFIGURATION
+                 ═══════════════════════════════════════════════════════════════ -->
+            <div id="tab-config" class="tab-content hidden">
+                
+                <section>
+                    <div class="section-header">
+                        <h2 class="section-title">Configurazione Sistema</h2>
+                        <div class="section-line"></div>
+                    </div>
+                    
+                    <!-- Config Info Banner -->
+                    <div class="card mb-lg" style="background: var(--bg-elevated); border-color: var(--border-accent);">
+                        <div class="card-body" style="padding: var(--space-md) var(--space-lg);">
+                            <div class="flex items-center gap-md">
+                                <span style="color: var(--accent-primary); font-size: 1.5rem;">ℹ</span>
+                                <div>
+                                    <div class="mono" style="font-size: 0.85rem; color: var(--text-primary);">
+                                        Visualizzazione in sola lettura del file <code style="background: var(--bg-card); padding: 2px 6px; border-radius: 4px;">config-lstm.ini</code>
+                                    </div>
+                                    <div class="mono" style="font-size: 0.75rem; color: var(--text-tertiary); margin-top: 4px;">
+                                        Le modifiche alla configurazione devono essere effettuate direttamente nel file INI
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="card">
+                        <div class="card-header">
+                            <h3 class="card-title">
+                                <span class="card-title-icon">⚙</span>
+                                Parametri di Configurazione
+                            </h3>
+                        </div>
+                        <div class="card-body" id="config-viewer">
+                            <div class="loading">
+                                <div class="loading-spinner"></div>
+                                <span class="loading-text">Caricamento configurazione...</span>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+                
+            </div>
+            
+        </main>
+        
+        <!-- ═══════════════════════════════════════════════════════════════════
+             FOOTER
+             ═══════════════════════════════════════════════════════════════════ -->
+        <footer class="footer">
+            <p class="footer-text">
+                PROFETA Universal v5.0 Enterprise Dashboard &nbsp;|&nbsp; 
+                © 2026 <a href="https://billidynamics.com" target="_blank">BilliDynamics™</a> &nbsp;|&nbsp;
+                Tutti i diritti riservati &nbsp;|&nbsp;
+                <span id="footer-update">Ultimo aggiornamento: —</span>
+            </p>
+        </footer>
+        
+    </div>
+    
+    <!-- Scripts -->
+    <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+    
+    <!-- Update footer timestamp -->
+    <script>
+        setInterval(() => {
+            const el = document.getElementById('footer-update');
+            if (el && window.PROFETA_DASHBOARD && window.PROFETA_DASHBOARD.state.lastUpdate) {
+                el.textContent = 'Ultimo aggiornamento: ' + window.PROFETA_DASHBOARD.state.lastUpdate.toLocaleString('it-IT');
+            }
+        }, 1000);
+    </script>
+</body>
+</html>

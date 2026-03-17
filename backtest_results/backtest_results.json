@@ -1,0 +1,37 @@
+{
+  "summary": {
+    "start_time": "2026-03-16T15:06:30.104793",
+    "end_time": "2026-03-16T15:54:38.736869",
+    "duration_days": 0,
+    "num_folds": 3,
+    "total_trades": 45
+  },
+  "performance": {
+    "initial_capital": 100000.0,
+    "final_capital": 86151.6269843099,
+    "total_return": -13848.3730156901,
+    "total_return_pct": -13.848373015690099,
+    "annualized_return": 0
+  },
+  "risk_metrics": {
+    "sharpe_ratio": -0.14699802597588577,
+    "sortino_ratio": -0.1843350327811045,
+    "calmar_ratio": 0.0,
+    "max_drawdown": 34.012174567270215,
+    "max_drawdown_duration_days": "1304",
+    "volatility": 17.328549315845372
+  },
+  "trading_metrics": {
+    "win_rate": 0.3111111111111111,
+    "profit_factor": 0.7110707455895907,
+    "avg_win": 1815.8045555820609,
+    "avg_loss": -4468.835192529013,
+    "largest_win": 3277.429930883905,
+    "largest_loss": -26525.556957224362
+  },
+  "prediction_metrics": {
+    "avg_rmse": 1621.5083487392158,
+    "avg_mae": 1220.9430924611745,
+    "avg_direction_accuracy": 52.19925808161102
+  }
+}

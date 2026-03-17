@@ -1,0 +1,22 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# PROFETA Universal Dashboard - Requirements
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# Installazione:
+#   pip install -r requirements.txt
+#
+# BilliDynamics™ 2026
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Web Framework
+flask>=2.3.0
+
+# CORS Support (per sviluppo)
+flask-cors>=4.0.0
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# NOTE:
+# - Queste sono le uniche dipendenze necessarie per la dashboard
+# - La dashboard è progettata per essere leggera e non invasiva
+# - Non richiede le dipendenze pesanti di PROFETA (TensorFlow, etc.)
+# ═══════════════════════════════════════════════════════════════════════════════

@@ -1,0 +1,4 @@
+{
+    "AWS_COGNITO_URL": "https://cognito-idp.eu-north-1.amazonaws.com",
+    "AWS_CLIENT_ID": "65av1jufhko4qhpih361aq68jv"
+}
