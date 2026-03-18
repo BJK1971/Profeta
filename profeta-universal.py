@@ -1349,6 +1349,10 @@ class TrainingConfig:
     calib_ratio: float = 0.20       # 20% per conformal calibration
     test_ratio: float = 0.20        # 20% per metrics + coverage verification
     
+    # Caching
+    load_existing_model: bool = True
+    model_cache_dir: str = "./models"
+    
     # DEPRECATED in v5.3.0 - mantenuti per retrocompatibilità config file
     use_class_weights: bool = False  # Ignorato
     reg_loss_weight: float = 1.0     # Ignorato (solo regressione)
@@ -1386,6 +1390,9 @@ class TrainingConfig:
             train_ratio=s.getfloat('train_ratio', 0.60),
             calib_ratio=s.getfloat('calib_ratio', 0.20),
             test_ratio=s.getfloat('test_ratio', 0.20),
+            # Caching
+            load_existing_model=s.getboolean('load_existing_model', True),
+            model_cache_dir=s.get('model_cache_dir', './models'),
             # Legacy - ignorati
             use_class_weights=False,
             reg_loss_weight=1.0,
@@ -2541,6 +2548,12 @@ class DriftMonitor:
 #                                    PROFETA MODEL WRAPPER
 # ═══════════════════════════════════════════════════════════════════════════════════════════
 
+class ProfetaEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, Enum):
+            return obj.value
+        return super().default(obj)
+
 class PROFETAModel:
     """
     PROFETA v5.3.0 - Pure Regression Model
@@ -2613,7 +2626,7 @@ class PROFETAModel:
             if X.shape[1] > seq_len:
                 X = X[:, -seq_len:, :]
             return self.model.predict(X, verbose=0).flatten()
-    
+
     def save(self, base_path):
         with self._lock:
             p = Path(base_path)
@@ -2621,13 +2634,16 @@ class PROFETAModel:
             self.model.save(p.with_suffix('.keras'))
             with open(p.with_suffix('.meta.json'), 'w') as f:
                 json.dump({'model_uid': self.model_uid, 'config': asdict(self.config),
-                          'trained': self._trained, 'version': __version__}, f, indent=2)
+                          'trained': self._trained, 'version': __version__}, f, indent=2, cls=ProfetaEncoder)
     
     @classmethod
     def load(cls, base_path, train_config=None, logger=None) -> 'PROFETAModel':
         p = Path(base_path)
         with open(p.with_suffix('.meta.json')) as f: meta = json.load(f)
-        config = ModelConfig(**meta['config'])
+        config_dict = meta['config']
+        if 'architecture' in config_dict and isinstance(config_dict['architecture'], str):
+            config_dict['architecture'] = ModelArchitecture.from_string(config_dict['architecture'])
+        config = ModelConfig(**config_dict)
         inst = cls(config, train_config or TrainingConfig(), logger)
         gpu = GPUManager()
         with gpu.strategy_scope():
@@ -3306,6 +3322,31 @@ class PROFETAEngine:
         self.logger.info("NESTED CONFORMAL PREDICTION SPLIT (v5.6.0)")
         self.logger.info("=" * 70)
         
+        # ═══════════════════════════════════════════════════════════════════════════
+        # CACHE CHECK
+        # ═══════════════════════════════════════════════════════════════════════════
+        models_dir = Path(self.train_config.model_cache_dir)
+        seq_prep_path = models_dir / "seq_prep.pkl"
+        ensemble_meta_path = models_dir / "ensemble_meta.json"
+        state_path = models_dir / "training_state.pkl"
+        
+        if self.train_config.load_existing_model and ensemble_meta_path.exists() and seq_prep_path.exists() and state_path.exists():
+            self.logger.info(f"Loading existing models and state from {models_dir}")
+            self.seq_prep = SequencePreparator.load(seq_prep_path, self.logger)
+            self.ensemble = EnsembleManager(self.model_configs, self.train_config, self.logger)
+            self.ensemble.load_all(models_dir)
+            with open(state_path, 'rb') as f:
+                state = pickle.load(f)
+            self.conformal = state.get('conformal')
+            self._metrics = state.get('metrics')
+            self._split_info = state.get('_split_info')
+            self._model_stats = state.get('_model_stats', [])
+            self._coverage_verification = state.get('_coverage_verification')
+            self.drift_monitor = state.get('drift_monitor')
+            self._validation_data = state.get('_validation_data')
+            self.logger.info("Successfully loaded cached models. Skipping training.")
+            return self._metrics
+        
         n = len(proc_df)
         train_ratio = self.train_config.train_ratio
         calib_ratio = self.train_config.calib_ratio
@@ -3631,6 +3672,24 @@ class PROFETAEngine:
         self.logger.info(f"TRAINING COMPLETE (ASYMMETRIC CONFORMAL v5.7.0)")
         self.logger.info(f"  TEST R²: {reg_m.r2:.4f}, TEST Dir Accuracy: {dir_m.direction_accuracy:.1%}")
         self.logger.info(f"  90% Coverage (out-of-sample): {test_coverage.get(0.90, 0):.1%}{asym_info}")
+        
+        # Save cache
+        if self.train_config.load_existing_model:
+            self.logger.info(f"Saving models and state to {models_dir}")
+            self.seq_prep.save(seq_prep_path)
+            self.ensemble.save_all(models_dir)
+            state = {
+                'conformal': self.conformal,
+                'metrics': self._metrics,
+                '_split_info': self._split_info,
+                '_model_stats': self._model_stats,
+                '_coverage_verification': self._coverage_verification,
+                'drift_monitor': self.drift_monitor,
+                '_validation_data': self._validation_data
+            }
+            with open(state_path, 'wb') as f:
+                pickle.dump(state, f)
+                
         return self._metrics
     
     def _train_legacy_split(self, proc_df: pd.DataFrame, feat_names: List[str],
@@ -3645,6 +3704,30 @@ class PROFETAEngine:
         self.logger.info("Using LEGACY split (v5.4.0 compatible)")
         self.logger.info("NOTE: For out-of-sample guarantees, set use_nested_split=True")
         
+        # ═══════════════════════════════════════════════════════════════════════════
+        # CACHE CHECK
+        # ═══════════════════════════════════════════════════════════════════════════
+        models_dir = Path(self.train_config.model_cache_dir)
+        seq_prep_path = models_dir / "seq_prep.pkl"
+        ensemble_meta_path = models_dir / "ensemble_meta.json"
+        state_path = models_dir / "training_state.pkl"
+        
+        if self.train_config.load_existing_model and ensemble_meta_path.exists() and seq_prep_path.exists() and state_path.exists():
+            self.logger.info(f"Loading existing models and state from {models_dir}")
+            self.seq_prep = SequencePreparator.load(seq_prep_path, self.logger)
+            self.ensemble = EnsembleManager(self.model_configs, self.train_config, self.logger)
+            self.ensemble.load_all(models_dir)
+            with open(state_path, 'rb') as f:
+                state = pickle.load(f)
+            self.conformal = state.get('conformal')
+            self._metrics = state.get('metrics')
+            self._split_info = state.get('_split_info')
+            self._model_stats = state.get('_model_stats', [])
+            self.drift_monitor = state.get('drift_monitor')
+            self._validation_data = state.get('_validation_data')
+            self.logger.info("Successfully loaded cached models. Skipping training.")
+            return self._metrics
+            
         self._split_info = {'method': 'legacy', 'train_test_split': self.train_config.train_test_split}
         
         # Sequences
@@ -3754,6 +3837,23 @@ class PROFETAEngine:
         self.logger.info("=" * 70)
         self.logger.info(f"TRAINING COMPLETE (LEGACY) - R²: {reg_m.r2:.4f}, Dir Accuracy: {dir_m.direction_accuracy:.1%}")
         self.logger.info(f"Conformal Intervals: 90% width = ±${self.conformal.quantiles.get(0.90, 0):.2f}")
+        
+        # Save cache
+        if self.train_config.load_existing_model:
+            self.logger.info(f"Saving models and state to {models_dir}")
+            self.seq_prep.save(seq_prep_path)
+            self.ensemble.save_all(models_dir)
+            state = {
+                'conformal': self.conformal,
+                'metrics': self._metrics,
+                '_split_info': self._split_info,
+                '_model_stats': self._model_stats,
+                'drift_monitor': self.drift_monitor,
+                '_validation_data': self._validation_data
+            }
+            with open(state_path, 'wb') as f:
+                pickle.dump(state, f)
+                
         return self._metrics
     
     def predict(self, data_path=None, df=None) -> List[FusionResult]:

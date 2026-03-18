@@ -49,10 +49,10 @@ def download_data(reference_datetime: datetime):
         data = client.get_exchange_candles(
             1,
             1,
-            IntervalUnit.minute,
+            IntervalUnit.hour,
             1,
             AggMethod.agg_candlesticks,
-            count=13380,
+            count=1500,  # 1500 ore sono più che sufficienti per i 1000 punti richiesti
             sort_mode=None,
             end=reference_datetime,
         )

@@ -37,7 +37,8 @@ def calculate_waiting_time(
     current_time = datetime.datetime.now(datetime.timezone.utc)
     match interval:
         case "H":
-            waiting_time = datetime.timedelta(hours=3)
+            # Sincronizza esattamente sulla prossima ora solare (+ 1 min di ritardo tecnico API broker)
+            waiting_time = datetime.timedelta(hours=1, minutes=1)
             current_time = current_time.replace(minute=0, second=0, microsecond=0)
         case "M":
             waiting_time = datetime.timedelta(minutes=10)

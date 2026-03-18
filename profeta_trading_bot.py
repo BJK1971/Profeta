@@ -193,6 +193,29 @@ class ProfetaTradingBot:
 
     def run_cycle(self):
         """Legge periodicamente l'ultimo file CSV dell'ensemble."""
+        # --- Monitoraggio P/L Posizioni Aperte ---
+        try:
+            open_pos = self.broker.get_open_positions()
+            if open_pos:
+                total_upl = 0.0
+                log_entries = []
+                for p in open_pos:
+                    epic_name = p.get("market", {}).get("epic", "UNKNOWN")
+                    pos = p.get("position", {})
+                    direction = pos.get("direction", "")
+                    size = pos.get("size", 0)
+                    
+                    # Estrazione P/L dal JSON restituito da Capital.com (spesso definito 'upl').
+                    upl = float(pos.get("upl", 0.0))
+                    total_upl += upl
+                    
+                    log_entries.append(f"[{direction} {size} {epic_name} -> P/L: {upl:.2f} $]")
+                
+                self.logger.info(f"STATUS TRADES: {', '.join(log_entries)} | TOTALE P/L: {total_upl:.2f} $")
+        except Exception:
+             pass # Silenzioso su errori di rete isolati
+        # ----------------------------------------
+
         try:
             # Carica in poling le previsioni appena sfornate
             df = pd.read_csv(self.predictions_path)
@@ -200,27 +223,49 @@ class ProfetaTradingBot:
             if df.empty:
                 return
 
-            # Filtriamo per prendere l'ultima riga corrispondente alla predizione della PROSSIMA candela (horizon=1)
-            # Invece di prendere quella a +72 ore nel futuro (l'ultima riga assoluta del file)
-            if "horizon" in df.columns:
-                df_horizon = df[df["horizon"] == 1]
-                if not df_horizon.empty:
-                    last_row = df_horizon.iloc[-1]
+            # --- Ricerca del Segnale Migliore sull'intero Orizzonte ---
+            # Invece di guardare solo horizon=1 (spesso piatto per candele orarie), cerchiamo l'orizzonte
+            # con il segnale direzionale più forte tra tutti quelli predetti.
+            best_row = None
+            max_abs_change = -1.0
+
+            for idx, row in df.iterrows():
+                try:
+                    chg = float(row.get("change_pct", 0))
+                    d = int(row.get("direction", 0))
+                    # Consideriamo solo se la direzione non è FLAT (0)
+                    if d != 0 and abs(chg) > max_abs_change:
+                        max_abs_change = abs(chg)
+                        best_row = row
+                except Exception:
+                    pass
+
+            if best_row is not None and max_abs_change > self.activation_threshold:
+                last_row = best_row
+                horizon_found = int(last_row.get("horizon", 0))
+                self.logger.info(f"Segnale forte trovato a horizon={horizon_found} con variazione {max_abs_change*100:.5f}%")
+            else:
+                # Fallback standard su horizon=1
+                if "horizon" in df.columns:
+                    df_horizon = df[df["horizon"] == 1]
+                    if not df_horizon.empty:
+                        last_row = df_horizon.iloc[-1]
+                    else:
+                        last_row = df.iloc[-1]
                 else:
                     last_row = df.iloc[-1]
-            else:
-                last_row = df.iloc[-1]
             
-            # Leggi sempre il timestamp e forziamo fallback su stringhe note nel DataFrame
+            # Catturiamo il timestamp del momento base (riga 0) per tracciare il "ciclo",
+            # altrimenti il bot eseguirebbe trade continui per un semplice scostamento del best horizon.
             if "timestamp" in df.columns:
-                current_tms = last_row["timestamp"]
+                current_tms = df.iloc[0]["timestamp"] if not df.empty else last_row["timestamp"]
             elif "Date" in df.columns:
-                current_tms = last_row["Date"]
+                current_tms = df.iloc[0]["Date"] if not df.empty else last_row["Date"]
             else:
                 current_tms = str(datetime.now(timezone.utc))
 
             if current_tms == self.last_processed_tms:
-                # Silenzioso se la barra non cambia, ma facciamo un info_log ogni 10 min se ok
+                # Silenzioso se il ciclo temporale "base" non evolve
                 return
             
             self.last_processed_tms = current_tms
@@ -234,7 +279,7 @@ class ProfetaTradingBot:
                 self.logger.error("Errore conversione campi predizione")
                 return
 
-            self.logger.info(f"Nuova Barra {current_tms} | Prezzo Previsto: {predicted_val:.2f} | Variazione Stimata: {change_pct*100:.3f}% | Direzione: {direction}")
+            self.logger.info(f"Nuovo Ciclo Valutazione {current_tms} | Orizzonte Target: {last_row.get('horizon', 'N/A')} | Prezzo Previsto: {predicted_val:.2f} | Variazione Stimata: {change_pct*100:.5f}% | Direzione: {direction}")
 
             # Logic: usa la predizione di change_pct combinata con la direzione del modello
             
@@ -279,7 +324,7 @@ class ProfetaTradingBot:
                  self.logger.info("SEGNALE SHORT SCATTATO: Esecuzione ordine di SELL (Short) a Mercato")
                  self.broker.place_market_order(self.epic, "SELL", self.trade_size, self.sl_pts, self.tp_pts)
             else:
-                 self.logger.info(f"Il Modello Consiglia HOLD: direzione {direction} o delta perc {change_pct*100:.3f}% sotto soglia.")
+                 self.logger.info(f"Il Modello Consiglia HOLD: direzione {direction} o delta perc {change_pct*100:.5f}% sotto soglia.")
 
         except FileNotFoundError:
             self.logger.error(f"File previsioni non trovato (forse in fase di rendering). Attendere la prima esecuzione di 'Run_profeta_real_time.py' su: {self.predictions_path}")
