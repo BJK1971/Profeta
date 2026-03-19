@@ -203,13 +203,19 @@ class ProfetaTradingBot:
                     epic_name = p.get("market", {}).get("epic", "UNKNOWN")
                     pos = p.get("position", {})
                     direction = pos.get("direction", "")
-                    size = pos.get("size", 0)
+                    size = float(pos.get("size", 0))
+                    open_level = float(pos.get("level", 0))
                     
                     # Estrazione P/L dal JSON restituito da Capital.com (spesso definito 'upl').
                     upl = float(pos.get("upl", 0.0))
                     total_upl += upl
                     
-                    log_entries.append(f"[{direction} {size} {epic_name} -> P/L: {upl:.2f} $]")
+                    upl_pct = 0.0
+                    if size > 0 and open_level > 0:
+                        trade_value = size * open_level
+                        upl_pct = (upl / trade_value) * 100 if trade_value > 0 else 0.0
+                    
+                    log_entries.append(f"[{direction} {size} {epic_name} -> P/L: {upl:.2f} $ ({upl_pct:+.2f}%)]")
                 
                 self.logger.info(f"STATUS TRADES: {', '.join(log_entries)} | TOTALE P/L: {total_upl:.2f} $")
         except Exception:
@@ -243,7 +249,9 @@ class ProfetaTradingBot:
             if best_row is not None and max_abs_change > self.activation_threshold:
                 last_row = best_row
                 horizon_found = int(last_row.get("horizon", 0))
-                self.logger.info(f"Segnale forte trovato a horizon={horizon_found} con variazione {max_abs_change*100:.5f}%")
+                target_time = last_row.get("timestamp", last_row.get("Date", f"+{horizon_found}h"))
+                actual_chg = float(last_row.get("change_pct", 0))
+                self.logger.info(f"Strategia: Il picco direzionale previsto è alle ore {target_time} (Horizon: +{horizon_found}h) con variazione del {actual_chg*100:+.3f}%")
             else:
                 # Fallback standard su horizon=1
                 if "horizon" in df.columns:
@@ -303,7 +311,8 @@ class ProfetaTradingBot:
                         break
                         
                 if current_market_dir == target_direction_str:
-                    self.logger.info(f"Nessuna azione: Esiste già una posizione {current_market_dir} aperta su {self.epic}. Mantengo aperto per massimizzare il profitto.")
+                    target_time = last_row.get("timestamp", last_row.get("Date", "Sconosciuta"))
+                    self.logger.info(f"Conferma Strategia: Manteniamo aperta la posizione {current_market_dir} su {self.epic}. Le previsioni confermano il target per le ore {target_time}.")
                     return
                 elif current_market_dir is not None and current_market_dir != target_direction_str:
                     # Direzione cambiata rispetto a quella aperta: liquida tutto

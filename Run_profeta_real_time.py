@@ -53,15 +53,18 @@ def calculate_waiting_time(
 def run_scripts(current_time: datetime.datetime):
     scripts = [
         [
-            "./training_data_download.py",
+            "./capital_data_download.py",
+            "./Trading_live_data/dati-training.csv",
+            "8000",
             current_time.isoformat(),
         ],
         [
-            "./real_time_data_download.py",
+            "./capital_data_download.py",
+            "./Trading_live_data/dati-trading.csv",
+            "1500",
             current_time.isoformat(),
         ],
         ["./profeta-universal.py"],
-        
     ]
     for script in scripts:
         try:
