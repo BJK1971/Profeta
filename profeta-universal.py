@@ -1375,6 +1375,16 @@ class TrainingConfig:
     def from_config(cls, config: configparser.ConfigParser) -> 'TrainingConfig':
         if not config.has_section('TRAINING'): return cls()
         s = config['TRAINING']
+        
+        # Estrai epic per differenziazione cache
+        epic = ""
+        if config.has_section('CAPITAL_DEMO'):
+            epic = config['CAPITAL_DEMO'].get('epic', '')
+            
+        cache_dir = s.get('model_cache_dir', './models')
+        if epic and epic not in cache_dir:
+            cache_dir = os.path.join(cache_dir, epic)
+
         return cls(
             num_epochs=s.getint('num_epochs', 100),
             batch_size=s.getint('batch_size', 32),
@@ -1392,7 +1402,7 @@ class TrainingConfig:
             test_ratio=s.getfloat('test_ratio', 0.20),
             # Caching
             load_existing_model=s.getboolean('load_existing_model', True),
-            model_cache_dir=s.get('model_cache_dir', './models'),
+            model_cache_dir=cache_dir,
             # Legacy - ignorati
             use_class_weights=False,
             reg_loss_weight=1.0,
@@ -1468,10 +1478,20 @@ class PredictionConfig:
     def from_config(cls, config: configparser.ConfigParser) -> 'PredictionConfig':
         if not config.has_section('PREDICTION'): return cls()
         s = config['PREDICTION']
+        
+        # Estrai epic per differenziazione
+        epic = ""
+        if config.has_section('CAPITAL_DEMO'):
+            epic = config['CAPITAL_DEMO'].get('epic', '')
+            
+        path = s.get('output_predictions_path', None)
+        if path and epic and epic not in path:
+            path = path.replace(".csv", f"_{epic}.csv")
+
         return cls(s.getint('num_future_steps', 24), s.getfloat('test_data_percentage', 0.1),
                    s.get('timestamp_column', 'timestamp'), s.get('target_column', 'close'),
                    s.getboolean('graph', True), s.get('output_dir', './output'),
-                   s.get('output_predictions_path', None),
+                   path,
                    s.getfloat('future_decay', 0.998))
 
 
@@ -4426,8 +4446,19 @@ class ConfigLoader:
         return configs
     
     def get_data_paths(self) -> Tuple[str, str]:
+        epic = ""
+        if self.config.has_section('CAPITAL_DEMO'):
+            epic = self.config['CAPITAL_DEMO'].get('epic', '')
+
         train = self.config.get('DATA', 'data_path', fallback='data/train.csv')
         pred = self.config.get('INPUT', 'input_data_path', fallback=train)
+        
+        if epic:
+            if epic not in train:
+                train = train.replace(".csv", f"_{epic}.csv")
+            if epic not in pred:
+                pred = pred.replace(".csv", f"_{epic}.csv")
+                
         return train, pred
 
 class PROFETADaemon:

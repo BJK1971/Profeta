@@ -159,8 +159,21 @@ class ProfetaTradingBot:
         self.config = configparser.ConfigParser()
         self.config.read(config_path)
 
+        # Estrai Epic
+        try:
+            self.epic = self.config["CAPITAL_DEMO"].get("epic", "BTCUSD")
+        except KeyError:
+            self.epic = "BTCUSD"
+
         # Percorso in cui l'Ensemble salva le previsioni ad ogni step dal file .ini
-        self.predictions_path = self.config["PREDICTION"]["output_predictions_path"]
+        base_predictions_path = self.config["PREDICTION"]["output_predictions_path"]
+        
+        # Se il file base esiste, usalo, altrimenti applica il suffisso dell'epic
+        # Per coerenza, preferiamo il file con suffisso se l'epic è definito
+        if self.epic:
+            self.predictions_path = base_predictions_path.replace(".csv", f"_{self.epic}.csv")
+        else:
+            self.predictions_path = base_predictions_path
         
         # Inizializza logger
         logging.basicConfig(

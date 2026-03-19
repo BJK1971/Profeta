@@ -23,6 +23,7 @@ import configparser
 import datetime
 import subprocess
 import time
+import os
 from math import ceil
 
 config = configparser.ConfigParser()
@@ -51,20 +52,34 @@ def calculate_waiting_time(
 
 
 def run_scripts(current_time: datetime.datetime):
+    # Estrai Epic per la differenziazione dei file
+    try:
+        # Legge dalla configurazione di backtest/live
+        # Inizia prioritizzando config-lstm.ini (il config principale per real-time)
+        config_path = "./config-lstm.ini" if os.path.exists("./config-lstm.ini") else "./BKTEST/config-lstm-backtest.ini"
+        tmp_conf = configparser.ConfigParser()
+        tmp_conf.read(config_path)
+        epic = tmp_conf["CAPITAL_DEMO"].get("epic", "BTCUSD")
+    except Exception:
+        epic = "BTCUSD"
+
+    train_csv = f"./Trading_live_data/dati-training_{epic}.csv"
+    trade_csv = f"./Trading_live_data/dati-trading_{epic}.csv"
+
     scripts = [
         [
             "./capital_data_download.py",
-            "./Trading_live_data/dati-training.csv",
+            train_csv,
             "8000",
             current_time.isoformat(),
         ],
         [
             "./capital_data_download.py",
-            "./Trading_live_data/dati-trading.csv",
+            trade_csv,
             "1500",
             current_time.isoformat(),
         ],
-        ["./profeta-universal.py"],
+        ["./profeta-universal.py", config_path],
     ]
     for script in scripts:
         try:
