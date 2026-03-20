@@ -55,7 +55,7 @@ class CapitalDemoBroker:
             self.logger.error(f"Errore durante l'autenticazione: {e}")
             return False
 
-    def place_market_order(self, epic: str, direction: str, size: float, sl_points: int = None, tp_points: int = None):
+    def place_market_order(self, epic: str, direction: str, size: float, sl_points: float = None, tp_points: float = None):
         """
         Piazza un ordine a mercato sul conto usando le REST API reali.
         """
@@ -86,7 +86,7 @@ class CapitalDemoBroker:
                 self.logger.warning("Token scaduto (401) in place_order. Rialineamento e retry...")
                 if self.authenticate():
                     return self.place_market_order(epic, direction, size, sl_points, tp_points)
-            self.logger.error(f"Errore HTTP piazzamento ordine: {he}")
+            self.logger.error(f"Errore HTTP piazzamento ordine: {he} - Dettagli: {he.response.text}")
             return None
         except Exception as e:
             self.logger.error(f"Errore piazzamento ordine: {e}")
@@ -114,12 +114,34 @@ class CapitalDemoBroker:
         """Recupera le informazioni sui conti (saldi, fondi disponibili, margini, ecc)."""
         url = f"{self.base_url}accounts"
         try:
-            self.logger.info("Richiesta informazioni conto (Accounts)...")
+            response = requests.get(url, headers=self.headers)
+            response.raise_for_status()
+            data = response.json()
+            accounts = data.get("accounts", [])
+            for acc in accounts:
+                balance = acc.get("balance", {}).get("balance", 0)
+                deposit = acc.get("balance", {}).get("deposit", 0)
+                self.logger.info(f"ACCOUNT INFO | Propr.: {acc.get('accountName')} | Balance: {balance} {acc.get('currency')} | Equity: {deposit}")
+            return data
+        except Exception as e:
+            self.logger.error(f"Errore recupero conti: {e}")
+            return None
+
+    def get_market_info(self, epic: str):
+        """Recupera le info di mercato per un epic specifico (es. minDealSize)."""
+        url = f"{self.base_url}markets/{epic}"
+        try:
             response = requests.get(url, headers=self.headers)
             response.raise_for_status()
             return response.json()
+        except requests.exceptions.HTTPError as he:
+            if he.response.status_code == 401:
+                if self.authenticate():
+                    return self.get_market_info(epic)
+            self.logger.error(f"Errore HTTP recupero info mercato per {epic}: {he}")
+            return None
         except Exception as e:
-            self.logger.error(f"Errore recupero conti: {e}")
+            self.logger.error(f"Errore recupero info mercato per {epic}: {e}")
             return None
 
     def close_all_positions(self, epic: str = None):
@@ -155,26 +177,15 @@ class CapitalDemoBroker:
 class ProfetaTradingBot:
     """Bot esecutivo che collega l'intelligenza di Profeta a Capital.com"""
 
-    def __init__(self, config_path: str):
+    def __init__(self, config_path: str, epic_override=None):
         self.config = configparser.ConfigParser()
         self.config.read(config_path)
-
-        # Estrai Epic
-        try:
+        
+        # Override Epic if provided
+        self.epic = epic_override
+        if not self.epic:
             self.epic = self.config["CAPITAL_DEMO"].get("epic", "BTCUSD")
-        except KeyError:
-            self.epic = "BTCUSD"
 
-        # Percorso in cui l'Ensemble salva le previsioni ad ogni step dal file .ini
-        base_predictions_path = self.config["PREDICTION"]["output_predictions_path"]
-        
-        # Se il file base esiste, usalo, altrimenti applica il suffisso dell'epic
-        # Per coerenza, preferiamo il file con suffisso se l'epic è definito
-        if self.epic:
-            self.predictions_path = base_predictions_path.replace(".csv", f"_{self.epic}.csv")
-        else:
-            self.predictions_path = base_predictions_path
-        
         # Inizializza logger
         logging.basicConfig(
             level=logging.INFO,
@@ -182,6 +193,13 @@ class ProfetaTradingBot:
         )
         self.logger = logging.getLogger("ProfetaTradingBot")
         
+        # Percorso previsioni (renderlo epic-aware)
+        base_path = self.config["PREDICTION"].get("output_predictions_path", "./PREVISIONI/real_time_ens_hours.csv")
+        if self.epic and self.epic not in base_path:
+            self.predictions_path = base_path.replace(".csv", f"_{self.epic}.csv")
+        else:
+            self.predictions_path = base_path
+
         # Estrai chiavi se configurate, altrimenti mock fallback
         try:
             k_key = self.config["CAPITAL_DEMO"]["api_key"]
@@ -190,22 +208,73 @@ class ProfetaTradingBot:
         except KeyError:
             k_key, k_sec, k_pas = "DEMO_KEY", "DEMO_SECRET", "DEMO_PASS"
 
-        # Inizializza Broker e tenta Auth (in locale potrebbe fallire se non hai messo le chiavi)
+        # Inizializza Broker e tenta Auth
         self.broker = CapitalDemoBroker(api_key=k_key, api_secret=k_sec, api_pass=k_pas)
         self.broker.authenticate()
 
         self.last_processed_tms = None
 
-        # Parametri Operativi e di Rischio (Risk Management) dal file INI
-        self.epic = self.config.get("CAPITAL_DEMO", "epic", fallback="BTCUSD")
-        self.trade_size = self.config.getfloat("CAPITAL_DEMO", "trade_size", fallback=0.01)
-        self.sl_pts = self.config.getint("CAPITAL_DEMO", "sl_pts", fallback=100)
-        self.tp_pts = self.config.getint("CAPITAL_DEMO", "tp_pts", fallback=300)
-        self.activation_threshold = self.config.getfloat("CAPITAL_DEMO", "activation_threshold", fallback=0.001)
+        # Lettura Base Parametri Operativi e Rischio
+        size_key = f"trade_size_{self.epic}"
+        self.trade_size = self.config["CAPITAL_DEMO"].getfloat(size_key, fallback=self.config["CAPITAL_DEMO"].getfloat("trade_size", 0.01))
 
+        sl_key = f"sl_pts_{self.epic}"
+        self.sl_pts = self.config["CAPITAL_DEMO"].getfloat(sl_key, fallback=self.config["CAPITAL_DEMO"].getfloat("sl_pts", 2000))
+        
+        tp_key = f"tp_pts_{self.epic}"
+        self.tp_pts = self.config["CAPITAL_DEMO"].getfloat(tp_key, fallback=self.config["CAPITAL_DEMO"].getfloat("tp_pts", 4000))
+
+        self.activation_threshold = self.config["CAPITAL_DEMO"].getfloat("activation_threshold", 0.0002)
+
+        # -------------------------------------------------------------
+        # ALLINEAMENTO DINAMICO REQ MINIMI DELL'API (SIZE, SL, TP)
+        # -------------------------------------------------------------
+        try:
+            market_info = self.broker.get_market_info(self.epic)
+            if market_info and "dealingRules" in market_info:
+                rules = market_info["dealingRules"]
+                
+                # Size Adeguamento
+                min_deal_size = rules.get("minDealSize", {}).get("value")
+                if min_deal_size is not None:
+                    min_deal_size = float(min_deal_size)
+                    self.logger.info(f"API Capital.com riporta minDealSize = {min_deal_size} per {self.epic}")
+                    if self.trade_size < min_deal_size:
+                        self.logger.warning(f"La size configurata ({self.trade_size}) è minore del minimo. Adeguamento a {min_deal_size}")
+                        self.trade_size = min_deal_size
+                
+                # SL / TP Adeguamento
+                min_stop_dist = rules.get("minNormalStopOrLimitDistance", {}).get("value")
+                if min_stop_dist is not None:
+                    min_stop_dist = float(min_stop_dist)
+                    self.logger.info(f"API Capital.com riporta minNormalStopOrLimitDistance = {min_stop_dist} per {self.epic}")
+                    
+                    if self.sl_pts > 100 and min_stop_dist < 1: 
+                        # Fallback di sicurezza: se abbiamo configurato "2000" ma l'asset usa decimali (Forex) 
+                        self.logger.warning(f"La SL configurata ({self.sl_pts}) sembra essere in formato Crypto (punti crudi), ma l'API usa {min_stop_dist}. Forza adeguamento intelligente.")
+                        self.sl_pts = min_stop_dist * 2.0  # Usiamo il doppio del minimo come safe stop
+
+                    if self.sl_pts < min_stop_dist:
+                        self.logger.warning(f"La SL configurata ({self.sl_pts}) è minore del minimo consentito. Adeguamento a {min_stop_dist}")
+                        self.sl_pts = min_stop_dist
+                        
+                    if self.tp_pts < min_stop_dist or self.tp_pts > 100:
+                        self.logger.warning(f"Forzatura TP adeguato al mercato.")
+                        self.tp_pts = min_stop_dist * 4.0 # Fallback dinamico
+                        
+        except Exception as e:
+            self.logger.error(f"Errore nel recupero dinamico info mercato: {e}")
+        # -------------------------------------------------------------
+        
 
     def run_cycle(self):
         """Legge periodicamente l'ultimo file CSV dell'ensemble."""
+        # --- Monitoraggio Conti ---
+        try:
+            self.broker.get_accounts()
+        except Exception:
+            pass
+            
         # --- Monitoraggio P/L Posizioni Aperte ---
         try:
             open_pos = self.broker.get_open_positions()
@@ -231,6 +300,8 @@ class ProfetaTradingBot:
                     log_entries.append(f"[{direction} {size} {epic_name} -> P/L: {upl:.2f} $ ({upl_pct:+.2f}%)]")
                 
                 self.logger.info(f"STATUS TRADES: {', '.join(log_entries)} | TOTALE P/L: {total_upl:.2f} $")
+            else:
+                self.logger.debug("Nessuna posizione aperta.")
         except Exception:
              pass # Silenzioso su errori di rete isolati
         # ----------------------------------------
@@ -296,11 +367,18 @@ class ProfetaTradingBot:
                 predicted_val = float(last_row.get("predicted_value", 0))
                 change_pct = float(last_row.get("change_pct", 0))
                 direction = int(last_row.get("direction", 0)) # 1 (BUY), -1 (SELL), 0 (HOLD)
-            except ValueError:
+                
+                # Check soglia
+                diff_from_limit = abs(change_pct) - self.activation_threshold
+                check_status = "OK" if abs(change_pct) > self.activation_threshold else "SOTTO SOGLIA"
+            except (ValueError, TypeError):
                 self.logger.error("Errore conversione campi predizione")
                 return
 
-            self.logger.info(f"Nuovo Ciclo Valutazione {current_tms} | Orizzonte Target: {last_row.get('horizon', 'N/A')} | Prezzo Previsto: {predicted_val:.2f} | Variazione Stimata: {change_pct*100:.5f}% | Direzione: {direction}")
+            self.logger.info(f"VALUTAZIONE CICLO {current_tms} | Asset: {self.epic}")
+            self.logger.info(f"  > Orizzonte: +{last_row.get('horizon', 'N/A')}h | Prezzo Previsto: {predicted_val:.4f}")
+            self.logger.info(f"  > Variazione: {change_pct*100:+.5f}% vs Soglia: {self.activation_threshold*100:.5f}% [{check_status}]")
+            self.logger.info(f"  > Direzione Modello: {'LONG' if direction==1 else 'SHORT' if direction==-1 else 'HOLD'}")
 
             # Logic: usa la predizione di change_pct combinata con la direzione del modello
             
@@ -355,11 +433,15 @@ class ProfetaTradingBot:
 
 
 def main():
-    # File conf generato pre-backtesting
-    config_file = "./BKTEST/config-lstm-backtest.ini"
-    bot = ProfetaTradingBot(config_file)
+    import argparse
+    parser = argparse.ArgumentParser(description="Profeta Trading Bot")
+    parser.add_argument('--config', default="./BKTEST/config-lstm-backtest.ini", help='Config file path')
+    parser.add_argument('--epic', help='Override asset Epic (e.g. BTCUSD)')
+    args = parser.parse_args()
     
-    bot.logger.info("Profeta Live Bot Inizializzato (Modalità Daemone). Ascolto predizioni...")
+    bot = ProfetaTradingBot(args.config, epic_override=args.epic)
+    
+    bot.logger.info(f"Profeta Live Bot Inizializzato per {bot.epic} (Modalità Daemone). Ascolto predizioni...")
     print("---------------------------------------------------------------")
     
     while True:

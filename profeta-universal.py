@@ -1372,13 +1372,13 @@ class TrainingConfig:
                 raise ValidationError(f"test_ratio must be >= 0.1, got {self.test_ratio}")
     
     @classmethod
-    def from_config(cls, config: configparser.ConfigParser) -> 'TrainingConfig':
+    def from_config(cls, config: configparser.ConfigParser, epic_override=None) -> 'TrainingConfig':
         if not config.has_section('TRAINING'): return cls()
         s = config['TRAINING']
         
         # Estrai epic per differenziazione cache
-        epic = ""
-        if config.has_section('CAPITAL_DEMO'):
+        epic = epic_override
+        if not epic and config.has_section('CAPITAL_DEMO'):
             epic = config['CAPITAL_DEMO'].get('epic', '')
             
         cache_dir = s.get('model_cache_dir', './models')
@@ -1475,13 +1475,12 @@ class PredictionConfig:
     future_decay: float = 0.998  # Decay per step futuro (0.998^72 ≈ 0.87, mantiene 87% della predizione)
     
     @classmethod
-    def from_config(cls, config: configparser.ConfigParser) -> 'PredictionConfig':
+    def from_config(cls, config: configparser.ConfigParser, epic_override=None) -> 'PredictionConfig':
         if not config.has_section('PREDICTION'): return cls()
         s = config['PREDICTION']
         
-        # Estrai epic per differenziazione
-        epic = ""
-        if config.has_section('CAPITAL_DEMO'):
+        epic = epic_override
+        if not epic and config.has_section('CAPITAL_DEMO'):
             epic = config['CAPITAL_DEMO'].get('epic', '')
             
         path = s.get('output_predictions_path', None)
@@ -2889,8 +2888,8 @@ class FusionEngine:
         delta_abs = reg_pred - curr_val
         change_pct = delta_abs / (curr_val + EPSILON)
         
-        # Soglia dinamica per determinare UP/DOWN/FLAT
-        delta_threshold = max(abs(curr_val) * self.config.delta_threshold_pct, 10)
+        # Soglia dinamica percentuali per determinare UP/DOWN/FLAT
+        delta_threshold = abs(curr_val) * self.config.delta_threshold_pct
         flat_threshold = delta_threshold * 0.5
         
         # Trend derivato matematicamente
@@ -3317,6 +3316,23 @@ class PROFETAEngine:
         
         feat_names = self.preprocessor.feature_names
         max_seq_len = max(c.sequence_length for c in self.model_configs)
+        
+        # ═══════════════════════════════════════════════════════════════════════════
+        # TRAINING PARAMETERS SUMMARY (v5.6.1)
+        # ═══════════════════════════════════════════════════════════════════════════
+        self.logger.info("=" * 70)
+        self.logger.info("TRAINING CONFIGURATION SUMMARY")
+        self.logger.info("-" * 70)
+        self.logger.info(f"  Asset (Epic):      {self.domain_profile.subtype if self.domain_profile else 'N/A'}")
+        self.logger.info(f"  Input File:        {data_path}")
+        self.logger.info(f"  Total Records:     {len(df)}")
+        self.logger.info(f"  Processed Rows:    {len(proc_df)}")
+        self.logger.info(f"  Granularity:       {self.gran_config.model_granularity}")
+        self.logger.info(f"  Sequence Length:   {max_seq_len}")
+        self.logger.info(f"  Features Count:    {len(feat_names)}")
+        self.logger.info(f"  Cache Directory:   {self.train_config.model_cache_dir}")
+        self.logger.info("=" * 70)
+        
         self.logger.info(f"Ensemble sequence lengths: {sorted(set(c.sequence_length for c in self.model_configs))}, using max={max_seq_len}")
         
         # ═══════════════════════════════════════════════════════════════════════════
@@ -4107,6 +4123,10 @@ class PROFETAEngine:
         
         self.logger.info(f"Saving {len(future_results)} future predictions to CSV (out of {len(results)} total)")
         
+        # Log dettagliato dei "numeri" per controllo utente
+        for res in future_results:
+            self.logger.info(f"PRED_NUM | H+{res.horizon}h | Price: {res.predicted_value:.2f} | Chg: {res.predicted_change_pct*100:+.4f}% | Dir: {'UP' if res.direction==1 else 'DOWN' if res.direction==-1 else 'FLAT'}")
+
         outs = {'csv': self.output_gen.generate_csv(
             future_results,  # Solo previsioni future
             custom_path=self.pred_config.output_predictions_path
@@ -4408,8 +4428,9 @@ class ReportConfig:
 
 
 class ConfigLoader:
-    def __init__(self, path):
+    def __init__(self, path, epic_override=None):
         self.path = Path(path)
+        self.epic_override = epic_override
         if not self.path.exists(): raise ConfigurationError(f"Not found: {path}")
         self.config = configparser.ConfigParser()
         # Prova vari encoding per compatibilità cross-platform
@@ -4426,10 +4447,10 @@ class ConfigLoader:
     def get_system(self) -> SystemConfig: return SystemConfig.from_config(self.config)
     def get_domain(self) -> DomainProfile: return DomainProfile.from_config(self.config)
     def get_granularity(self) -> GranularityConfig: return GranularityConfig.from_config(self.config)
-    def get_training(self) -> TrainingConfig: return TrainingConfig.from_config(self.config)
+    def get_training(self) -> TrainingConfig: return TrainingConfig.from_config(self.config, epic_override=self.epic_override)
     def get_classification(self) -> ClassificationConfig: return ClassificationConfig.from_config(self.config)
     def get_fusion(self) -> FusionConfig: return FusionConfig.from_config(self.config)
-    def get_prediction(self) -> PredictionConfig: return PredictionConfig.from_config(self.config)
+    def get_prediction(self) -> PredictionConfig: return PredictionConfig.from_config(self.config, epic_override=self.epic_override)
     def get_scheduler(self) -> SchedulerConfig: return SchedulerConfig.from_config(self.config)
     def get_report(self) -> ReportConfig: return ReportConfig.from_config(self.config)
     
@@ -4446,8 +4467,8 @@ class ConfigLoader:
         return configs
     
     def get_data_paths(self) -> Tuple[str, str]:
-        epic = ""
-        if self.config.has_section('CAPITAL_DEMO'):
+        epic = self.epic_override
+        if not epic and self.config.has_section('CAPITAL_DEMO'):
             epic = self.config['CAPITAL_DEMO'].get('epic', '')
 
         train = self.config.get('DATA', 'data_path', fallback='data/train.csv')
@@ -4462,8 +4483,9 @@ class ConfigLoader:
         return train, pred
 
 class PROFETADaemon:
-    def __init__(self, config_path, logger=None):
+    def __init__(self, config_path, epic_override=None, logger=None):
         self.config_path = Path(config_path)
+        self.epic_override = epic_override
         self.logger = logger or logging.getLogger(self.__class__.__name__)
         self._shutdown = threading.Event()
         self._engine: Optional[PROFETAEngine] = None
@@ -4471,7 +4493,7 @@ class PROFETADaemon:
     def run(self):
         self._print_banner()
         self._setup_signals()
-        loader = ConfigLoader(self.config_path)
+        loader = ConfigLoader(self.config_path, epic_override=self.epic_override)
         loader.get_system().initialize()
         
         sched = loader.get_scheduler()
@@ -4629,10 +4651,15 @@ use_bidirectional = false
 def main():
     import argparse
     parser = argparse.ArgumentParser(description="PROFETA Universal v5.0")
-    parser.add_argument('config_file', nargs='?', help='Config file')
-    parser.add_argument('--create-config', action='store_true', help='Create sample config')
-    parser.add_argument('--version', action='store_true', help='Show version')
+    parser.add_argument('--config', help='Path del file di configurazione (.ini)')
+    parser.add_argument('config_pos', nargs='?', help='Percorso del file di configurazione (posizionale)')
+    parser.add_argument('--create-config', action='store_true', help='Crea un file di configurazione di esempio')
+    parser.add_argument('--version', action='store_true', help='Mostra la versione del software')
+    parser.add_argument('--epic', help='Override dell\'asset Epic (es. BTCUSD)')
     args = parser.parse_args()
+
+    # Determina il file di configurazione finale
+    config_file = args.config if args.config else args.config_pos
     
     if args.version:
         print(f"PROFETA Universal v{__version__}\n{__author__}\n{__company__}")
@@ -4642,13 +4669,13 @@ def main():
         return
     
     # Auto-discovery config file
-    if not args.config_file:
+    if not config_file:
         config_candidates = list(Path('.').glob('*.ini')) + list(Path('.').glob('config*.ini'))
         config_candidates = sorted(set(config_candidates))  # rimuovi duplicati
         
         if len(config_candidates) == 1:
-            args.config_file = str(config_candidates[0])
-            print(f"[Auto-detected config: {args.config_file}]")
+            config_file = str(config_candidates[0])
+            print(f"[Auto-detected config: {config_file}]")
         elif len(config_candidates) > 1:
             print("Multiple config files found:")
             for i, cfg in enumerate(config_candidates, 1):
@@ -4660,7 +4687,7 @@ def main():
             return
     
     try:
-        PROFETADaemon(args.config_file).run()
+        PROFETADaemon(config_file, epic_override=args.epic).run()
     except KeyboardInterrupt:
         print("\nInterrupted")
     except PROFETAError as e:

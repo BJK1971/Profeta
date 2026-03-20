@@ -9,14 +9,18 @@ from datetime import datetime, timezone, timedelta
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | CapitalDownloader | %(message)s")
 
 class CapitalDataDownloader:
-    def __init__(self, config_path):
+    def __init__(self, config_path, epic_override=None):
         config = configparser.ConfigParser()
         config.read(config_path)
         
         self.api_key = config["CAPITAL_DEMO"]["api_key"]
         self.api_secret = config["CAPITAL_DEMO"]["api_secret"]
         self.api_pass = config["CAPITAL_DEMO"]["api_pass"]
-        self.epic = config["CAPITAL_DEMO"].get("epic", "BTCUSD")
+        
+        self.epic = epic_override
+        if not self.epic:
+            self.epic = config["CAPITAL_DEMO"].get("epic", "BTCUSD")
+            
         self.base_url = "https://demo-api-capital.backend-capital.com/api/v1/"
         self.headers = {"X-CAP-API-KEY": self.api_key}
         
@@ -122,31 +126,35 @@ class CapitalDataDownloader:
         logging.info(f"Sincronizzazione di {len(df)} candele completata su {output_path}")
 
 if __name__ == "__main__":
-    if len(sys.argv) < 3:
-        logging.error("Uso: python capital_data_download.py <target_file_csv> <bars_count> [reference_iso_datetime]")
-        sys.exit(1)
-        
-    target_csv = sys.argv[1]
-    raw_count = int(sys.argv[2])
+    import argparse
+    parser = argparse.ArgumentParser(description="Capital.com Data Downloader")
+    parser.add_argument('target_csv', help='Output CSV file path')
+    parser.add_argument('bars_count', type=int, help='Number of hours/bars to download')
+    parser.add_argument('reference_datetime', nargs='?', help='Reference ISO datetime (optional)')
+    parser.add_argument('--config', help='Path of the .ini config file')
+    parser.add_argument('--epic', help='Override asset Epic (e.g. BTCUSD)')
+    args = parser.parse_args()
     
     # Se un parametro orario è passato, usiamo quello, sennò NOW(UTC)
     ref_datetime = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
-    if len(sys.argv) > 3:
+    if args.reference_datetime:
         try:
             # Pulisce la Z di isoformat per datetime nativo
-            clean_str = sys.argv[3].replace("Z", "+00:00")
+            clean_str = args.reference_datetime.replace("Z", "+00:00")
             ref_datetime = datetime.fromisoformat(clean_str)
         except Exception:
             pass
 
-    # Usiamo il config di backtest che è quello manipolato per contenere la configurazione unificata
-    config_ini = "config-lstm.ini"
-    if os.path.exists("./BKTEST/config-lstm-backtest.ini"):
-        config_ini = "./BKTEST/config-lstm-backtest.ini"
+    # Determina il file di configurazione
+    config_ini = args.config
+    if not config_ini:
+        config_ini = "config-lstm.ini"
+        if os.path.exists("./BKTEST/config-lstm-backtest.ini"):
+            config_ini = "./BKTEST/config-lstm-backtest.ini"
 
-    downloader = CapitalDataDownloader(config_ini)
-    logging.info(f"Avvio Download {raw_count} candele per [{downloader.epic}] -> Destinazione: {target_csv}")
+    downloader = CapitalDataDownloader(config_ini, epic_override=args.epic)
+    logging.info(f"Avvio Download {args.bars_count} candele per [{downloader.epic}] -> Destinazione: {args.target_csv}")
     
-    bars = downloader.download_historical_data(raw_count, ref_datetime)
-    downloader.format_and_save(bars, target_csv, raw_count)
+    bars = downloader.download_historical_data(args.bars_count, ref_datetime)
+    downloader.format_and_save(bars, args.target_csv, args.bars_count)
     logging.info(f"Processo concluso per [{downloader.epic}].")

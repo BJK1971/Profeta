@@ -19,6 +19,7 @@ Compatibilità:
 Assicurati che lo script sia eseguito nella stessa directory in cui si trovano gli altri script,
 o aggiorna i percorsi degli script con i relativi path completi."""
 
+import argparse
 import configparser
 import datetime
 import subprocess
@@ -26,8 +27,27 @@ import time
 import os
 from math import ceil
 
+parser = argparse.ArgumentParser(description="Profeta Real-Time Orchestrator")
+parser.add_argument('--config', help='Path del file di configurazione (.ini)')
+parser.add_argument('--epic', help='Override dell\'asset Epic (es. BTCUSD)')
+args = parser.parse_args()
+
+# Determina il file di configurazione
+if args.config:
+    config_path = args.config
+else:
+    # Default: scorri i classici nomi file
+    config_path = "./config-lstm.ini" if os.path.exists("./config-lstm.ini") else "./BKTEST/config-lstm-backtest.ini"
+
 config = configparser.ConfigParser()
-config.read("./config-lstm.ini")
+config.read(config_path)
+
+# Determina l'epic
+epic_override = args.epic
+if epic_override:
+    epic = epic_override
+else:
+    epic = config["CAPITAL_DEMO"].get("epic", "BTCUSD")
 
 interval = config["PREDICTION"].get("freq", fallback="H")
 
@@ -51,17 +71,7 @@ def calculate_waiting_time(
     return waiting_time, current_time
 
 
-def run_scripts(current_time: datetime.datetime):
-    # Estrai Epic per la differenziazione dei file
-    try:
-        # Legge dalla configurazione di backtest/live
-        # Inizia prioritizzando config-lstm.ini (il config principale per real-time)
-        config_path = "./config-lstm.ini" if os.path.exists("./config-lstm.ini") else "./BKTEST/config-lstm-backtest.ini"
-        tmp_conf = configparser.ConfigParser()
-        tmp_conf.read(config_path)
-        epic = tmp_conf["CAPITAL_DEMO"].get("epic", "BTCUSD")
-    except Exception:
-        epic = "BTCUSD"
+def run_scripts(current_time: datetime.datetime, config_path: str, epic: str):
 
     train_csv = f"./Trading_live_data/dati-training_{epic}.csv"
     trade_csv = f"./Trading_live_data/dati-trading_{epic}.csv"
@@ -72,14 +82,18 @@ def run_scripts(current_time: datetime.datetime):
             train_csv,
             "8000",
             current_time.isoformat(),
+            "--config", config_path,
+            "--epic", epic,
         ],
         [
             "./capital_data_download.py",
             trade_csv,
             "1500",
             current_time.isoformat(),
+            "--config", config_path,
+            "--epic", epic,
         ],
-        ["./profeta-universal.py", config_path],
+        ["./profeta-universal.py", "--config", config_path, "--epic", epic],
     ]
     for script in scripts:
         try:
@@ -99,7 +113,7 @@ if __name__ == "__main__":
     while True:
         waiting_time, current_time = calculate_waiting_time(interval)
         print("\n--- Inizio ciclo di esecuzione ---\n")
-        run_scripts(current_time)
+        run_scripts(current_time, config_path, epic)
         next_time = current_time + waiting_time
         waiting_time_seconds = (
             ceil(
