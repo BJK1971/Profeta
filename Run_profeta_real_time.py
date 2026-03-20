@@ -22,9 +22,11 @@ o aggiorna i percorsi degli script con i relativi path completi."""
 import argparse
 import configparser
 import datetime
-import subprocess
-import time
+import logging
 import os
+import subprocess
+import sys
+import time
 from math import ceil
 
 parser = argparse.ArgumentParser(description="Profeta Real-Time Orchestrator")
@@ -72,13 +74,15 @@ def calculate_waiting_time(
 
 
 def run_scripts(current_time: datetime.datetime, config_path: str, epic: str):
-
-    train_csv = f"./Trading_live_data/dati-training_{epic}.csv"
-    trade_csv = f"./Trading_live_data/dati-trading_{epic}.csv"
+    # Get absolute path to script directory
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    train_csv = os.path.join(script_dir, f"Trading_live_data/dati-training_{epic}.csv")
+    trade_csv = os.path.join(script_dir, f"Trading_live_data/dati-trading_{epic}.csv")
 
     scripts = [
         [
-            "./capital_data_download.py",
+            os.path.join(script_dir, "capital_data_download.py"),
             train_csv,
             "8000",
             current_time.isoformat(),
@@ -86,33 +90,57 @@ def run_scripts(current_time: datetime.datetime, config_path: str, epic: str):
             "--epic", epic,
         ],
         [
-            "./capital_data_download.py",
+            os.path.join(script_dir, "capital_data_download.py"),
             trade_csv,
             "1500",
             current_time.isoformat(),
             "--config", config_path,
             "--epic", epic,
         ],
-        ["./profeta-universal.py", "--config", config_path, "--epic", epic],
+        [os.path.join(script_dir, "profeta-universal.py"), "--config", config_path, "--epic", epic],
     ]
     for script in scripts:
         try:
             print(f"Esecuzione di {script}...")
-            # Esegue lo script Python
-            subprocess.run(["python"] + script, check=True)
+            # Use sys.executable to get the correct Python interpreter
+            import sys
+            subprocess.run([sys.executable] + script, check=True, cwd=script_dir)
             print(f"Completato: {script[0]}\n")
         except subprocess.CalledProcessError as e:
             print(f"Errore durante l'esecuzione di {script}: {e}\n")
-        except FileNotFoundError:
+        except FileNotFoundError as e:
             print(
                 f"Script non trovato: {script}. Assicurati che sia nella stessa directory o fornisci il percorso completo.\n"
             )
 
 
 if __name__ == "__main__":
+    # Setup logging - Centralizzato in ~/Profeta/logs/
+    log_dir = os.path.expanduser("~/Profeta/logs")
+    os.makedirs(log_dir, exist_ok=True)
+    log_file = os.path.join(log_dir, f"orchestrator-{epic}.log")
+    
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s | %(levelname)-8s | %(message)s',
+        handlers=[
+            logging.FileHandler(log_file),
+            logging.StreamHandler()
+        ]
+    )
+    logger = logging.getLogger("ProfetaOrchestrator")
+    
+    logger.info("=" * 70)
+    logger.info(f"PROFETA ORCHESTRATOR - EPIC: {epic}")
+    logger.info(f"Config: {config_path}")
+    logger.info(f"Log file: {log_file}")
+    logger.info("=" * 70)
+    
     while True:
         waiting_time, current_time = calculate_waiting_time(interval)
-        print("\n--- Inizio ciclo di esecuzione ---\n")
+        logger.info("")
+        logger.info("--- Inizio ciclo di esecuzione ---")
+        logger.info("")
         run_scripts(current_time, config_path, epic)
         next_time = current_time + waiting_time
         waiting_time_seconds = (
@@ -126,7 +154,9 @@ if __name__ == "__main__":
         )
         hours, remainder = divmod(waiting_time_seconds, 3600)
         minutes, seconds = divmod(remainder, 60)
-        print(f"\n--- Fine ciclo. Attesa per {hours}h {minutes}m {seconds}s ---\n")
+        logger.info("")
+        logger.info(f"--- Fine ciclo. Attesa per {hours}h {minutes}m {seconds}s ---")
+        logger.info("")
         for remaining in range(waiting_time_seconds, 0, -1):
             mins, secs = divmod(remaining, 60)
             print(f"Tempo rimanente: {mins:02d}:{secs:02d}", end="\r")

@@ -1,5 +1,6 @@
 import configparser
 import logging
+import os
 import time
 from datetime import datetime, timezone
 
@@ -180,16 +181,24 @@ class ProfetaTradingBot:
     def __init__(self, config_path: str, epic_override=None):
         self.config = configparser.ConfigParser()
         self.config.read(config_path)
-        
+
         # Override Epic if provided
         self.epic = epic_override
         if not self.epic:
             self.epic = self.config["CAPITAL_DEMO"].get("epic", "BTCUSD")
 
-        # Inizializza logger
+        # Inizializza logger - Centralizzato in ~/Profeta/logs/
+        log_dir = os.path.expanduser("~/Profeta/logs")
+        os.makedirs(log_dir, exist_ok=True)
+        log_file = os.path.join(log_dir, f"trading-bot-{self.epic}.log")
+        
         logging.basicConfig(
             level=logging.INFO,
-            format='%(asctime)s | %(levelname)-8s | %(name)s | %(message)s'
+            format='%(asctime)s | %(levelname)-8s | %(name)s | %(message)s',
+            handlers=[
+                logging.FileHandler(log_file),
+                logging.StreamHandler()
+            ]
         )
         self.logger = logging.getLogger("ProfetaTradingBot")
         
