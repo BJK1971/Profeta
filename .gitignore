@@ -206,3 +206,4 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 PREVISIONI/real_time_ens_hours_BTCUSD.csv
+config-lstm.ini.wsl-backup
