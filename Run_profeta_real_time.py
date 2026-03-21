@@ -29,6 +29,9 @@ import sys
 import time
 from math import ceil
 
+# Import per market check ibrido
+from check_market_hybrid import check_market_status
+
 parser = argparse.ArgumentParser(description="Profeta Real-Time Orchestrator")
 parser.add_argument('--config', help='Path del file di configurazione (.ini)')
 parser.add_argument('--epic', help='Override dell\'asset Epic (es. BTCUSD)')
@@ -71,6 +74,38 @@ def calculate_waiting_time(
             waiting_time = datetime.timedelta(hours=3)
 
     return waiting_time, current_time
+
+
+def check_market_open(config_path: str, epic: str, logger) -> bool:
+    """
+    Verifica se il mercato è aperto prima di eseguire il training.
+    Usa il sistema ibrido (TradingHours + fallback locale).
+    
+    Args:
+        config_path: Percorso file configurazione
+        epic: Epic da verificare
+        logger: Logger instance
+        
+    Returns:
+        bool: True se mercato aperto
+    """
+    try:
+        # Usa check_market_hybrid
+        result = check_market_status(epic, config_path)
+        
+        if result['is_open']:
+            logger.info(f"✅ {result['message']} (Provider: {result.get('provider', 'unknown')})")
+            return True
+        else:
+            reason = result.get('reason', 'Motivo sconosciuto')
+            logger.info(f"❌ {result['message']}")
+            logger.info(f"   Reason: {reason}")
+            logger.info("Skip training/prediction - mercato chiuso")
+            return False
+            
+    except Exception as e:
+        logger.warning(f"Errore market check: {e} - procedo comunque")
+        return True  # Fallback: procedi se errore
 
 
 def run_scripts(current_time: datetime.datetime, config_path: str, epic: str):
@@ -141,7 +176,20 @@ if __name__ == "__main__":
         logger.info("")
         logger.info("--- Inizio ciclo di esecuzione ---")
         logger.info("")
-        run_scripts(current_time, config_path, epic)
+        
+        # Check mercato prima di eseguire
+        logger.info("Verifica stato mercato...")
+        if not check_market_open(config_path, epic, logger):
+            logger.info("")
+            logger.info("⚠️  Mercato CHIUSO - Skip ciclo corrente")
+            logger.info(f"⏱️  Prossimo tentativo tra {waiting_time}")
+            logger.info("")
+        else:
+            logger.info("")
+            logger.info("✅ Mercato APERTO - Esecuzione training/prediction")
+            logger.info("")
+            run_scripts(current_time, config_path, epic)
+        
         next_time = current_time + waiting_time
         waiting_time_seconds = (
             ceil(

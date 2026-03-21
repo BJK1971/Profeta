@@ -7,6 +7,9 @@ from datetime import datetime, timezone
 import pandas as pd
 import requests
 
+# Import per market check ibrido
+from check_market_hybrid import check_market_status
+
 # Nota: per Capital.com integreremo le REST API ufficiali (demo-api-capital).
 # Il bot si interpone tra il file output_predictions_path prodotto da "Run_profeta_real_time.py"
 # ed il broker vero e proprio.
@@ -34,15 +37,15 @@ class CapitalDemoBroker:
             "identifier": self.api_secret,  # In Capital.com l'identifier è tipicamente l'email/username
             "password": self.api_pass
         }
-        
+
         try:
             response = requests.post(url, json=payload, headers=self.headers)
             response.raise_for_status()
-            
+
             # Estrae i token di sessione dagli header di risposta
             cst = response.headers.get("CST")
             sec_token = response.headers.get("X-SECURITY-TOKEN")
-            
+
             if cst and sec_token:
                 self.headers["CST"] = cst
                 self.headers["X-SECURITY-TOKEN"] = sec_token
@@ -51,10 +54,134 @@ class CapitalDemoBroker:
             else:
                 self.logger.error("Autenticazione fallita: Token CST/X-SECURITY-TOKEN mancanti.")
                 return False
-                
+
         except Exception as e:
             self.logger.error(f"Errore durante l'autenticazione: {e}")
             return False
+
+    def check_market_status(self, epic: str) -> dict:
+        """
+        Verifica lo stato del mercato per un dato epic usando Capital.com API.
+        Strategia: Controlla se ci sono prezzi recenti.
+        
+        Args:
+            epic: Strumento da verificare (es: EURUSD, BTCUSD)
+            
+        Returns:
+            dict: {
+                'is_open': bool,
+                'status': str,
+                'epic': str,
+                'message': str
+            }
+        """
+        from datetime import datetime, timedelta
+        
+        # Usa endpoint prices - Capital.com richiede parametri specifici
+        url = f"{self.base_url}prices/{epic}"
+        
+        # Capital.com ha un limite di 400 ore per richiesta
+        # Per market check, prendiamo solo ultime 6 ore
+        now = datetime.now(timezone.utc)
+        from_time = now - timedelta(hours=6)
+        
+        # Parametri per Capital.com API
+        params = {
+            'resolution': 'MINUTE',
+            'from': from_time.strftime('%Y-%m-%dT%H:%M:%S'),
+            'to': now.strftime('%Y-%m-%dT%H:%M:%S'),
+            'max': '5'  # Solo ultimi 5 prezzi
+        }
+        
+        try:
+            # Usa params invece di URL-encoded manuale
+            response = requests.get(url, headers=self.headers, params=params)
+            
+            if response.status_code == 404:
+                self.logger.warning(f"Epic {epic} non trovato su Capital.com")
+                return {
+                    'is_open': False,
+                    'status': 'NOT_FOUND',
+                    'epic': epic,
+                    'message': f'Epic {epic} non trovato',
+                    'bid': None,
+                    'offer': None
+                }
+            
+            response.raise_for_status()
+            data = response.json()
+            prices = data.get('prices', [])
+            
+            if not prices or len(prices) == 0:
+                result = {
+                    'is_open': False,
+                    'status': 'NO_DATA',
+                    'epic': epic,
+                    'message': f'Mercato {epic}: CHIUSO (nessun prezzo disponibile)',
+                    'bid': None,
+                    'offer': None
+                }
+                self.logger.info(result['message'])
+                return result
+            
+            # Prendi l'ultimo prezzo
+            last_price = prices[-1]
+            bid = last_price.get('closePrice', {}).get('bid')
+            ask = last_price.get('closePrice', {}).get('ask')
+            snapshot_time = last_price.get('snapshotTimeUTC', '')
+            
+            # Verifica se il prezzo è recente (ultimi 30 minuti)
+            try:
+                price_time = datetime.fromisoformat(snapshot_time.replace('Z', '+00:00'))
+                time_diff = now - price_time
+                is_recent = time_diff.total_seconds() < 1800  # 30 minuti
+            except:
+                is_recent = False
+            
+            # Determina se mercato aperto
+            is_open = False
+            if bid and ask and bid > 0 and ask > 0 and is_recent:
+                is_open = True
+                status_msg = f"Mercato {epic}: APERTO (Bid: {bid}, Ask: {ask})"
+            else:
+                if not is_recent:
+                    status_msg = f"Mercato {epic}: CHIUSO (prezzi vecchi di {time_diff.total_seconds()/60:.0f} min)"
+                else:
+                    status_msg = f"Mercato {epic}: CHIUSO (dati non disponibili)"
+            
+            result = {
+                'is_open': is_open,
+                'status': 'OPEN' if is_open else 'CLOSED',
+                'epic': epic,
+                'message': status_msg,
+                'bid': bid,
+                'offer': ask,
+                'last_update': snapshot_time
+            }
+            
+            self.logger.info(status_msg)
+            return result
+            
+        except requests.exceptions.HTTPError as he:
+            self.logger.error(f"Errore HTTP check mercato {epic}: {he}")
+            return {
+                'is_open': True,  # Fallback: procedi se errore HTTP
+                'status': 'ERROR',
+                'epic': epic,
+                'message': f'Errore HTTP: {he}',
+                'bid': None,
+                'offer': None
+            }
+        except Exception as e:
+            self.logger.error(f"Errore check mercato {epic}: {e}")
+            return {
+                'is_open': True,  # Fallback: procedi se errore generico
+                'status': 'ERROR',
+                'epic': epic,
+                'message': f'Check fallito, procedo con cautela: {e}',
+                'bid': None,
+                'offer': None
+            }
 
     def place_market_order(self, epic: str, direction: str, size: float, sl_points: float = None, tp_points: float = None):
         """
@@ -179,6 +306,7 @@ class ProfetaTradingBot:
     """Bot esecutivo che collega l'intelligenza di Profeta a Capital.com"""
 
     def __init__(self, config_path: str, epic_override=None):
+        self.config_path = config_path  # Salva per market check
         self.config = configparser.ConfigParser()
         self.config.read(config_path)
 
@@ -278,6 +406,21 @@ class ProfetaTradingBot:
 
     def run_cycle(self):
         """Legge periodicamente l'ultimo file CSV dell'ensemble."""
+        
+        # --- MARKET CHECK: Verifica se mercato è aperto ---
+        try:
+            config_path = self.config_path if hasattr(self, 'config_path') else 'BKTEST/config-lstm-backtest.ini'
+            market_result = check_market_status(self.epic, config_path)
+            
+            if not market_result['is_open']:
+                reason = market_result.get('reason', 'Motivo sconosciuto')
+                self.logger.info(f"❌ Mercato {self.epic}: CHIUSO ({reason}) - Skip trading cycle")
+                return  # Skip questo ciclo
+            else:
+                self.logger.debug(f"✅ Mercato {self.epic}: APERTO")
+        except Exception as e:
+            self.logger.warning(f"Errore market check: {e} - procedo comunque")
+        
         # --- Monitoraggio Conti ---
         try:
             self.broker.get_accounts()
