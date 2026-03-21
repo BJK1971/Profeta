@@ -1,5 +1,5 @@
 #!/bin/bash
-# Start PROFETA services for EURUSD
+# Start PROFETA services for EURUSD e BTCUSD
 # Tutti i log vengono salvati in ~/Profeta/logs/
 
 cd ~/Profeta
@@ -10,33 +10,66 @@ mkdir -p ~/Profeta/logs
 # Kill any existing processes
 pkill -9 -f "Run_profeta_real_time.py" 2>/dev/null
 pkill -9 -f "profeta_trading_bot.py" 2>/dev/null
+pkill -9 -f "profeta-universal.py" 2>/dev/null
 sleep 2
 
-# Start orchestrator (hourly predictions)
-~/miniconda3/envs/profeta/bin/python Run_profeta_real_time.py --config BKTEST/config-lstm-EURUSD.ini --epic EURUSD &
-ORCH_PID=$!
-echo "Orchestrator started: PID $ORCH_PID"
-
-# Start trading bot (poll every 30s)
-~/miniconda3/envs/profeta/bin/python profeta_trading_bot.py --epic EURUSD &
-BOT_PID=$!
-echo "Trading bot started: PID $BOT_PID"
-
-# Save PIDs
-echo $ORCH_PID > /tmp/orchestrator.pid
-echo $BOT_PID > /tmp/trading-bot.pid
-
+echo "╔════════════════════════════════════════════════════════════════╗"
+echo "║          PROFETA SERVICES STARTER                              ║"
+echo "╚════════════════════════════════════════════════════════════════╝"
 echo ""
-echo "=== PROFETA Services Started ==="
-echo "Orchestrator PID: $ORCH_PID (hourly predictions)"
-echo "Trading Bot PID: $BOT_PID (poll every 30s)"
+
+# Funzione per avviare servizi per una epic
+start_epic_services() {
+    local epic=$1
+    local config="BKTEST/config-lstm-${epic}.ini"
+    
+    # Verifica config
+    if [ ! -f "$config" ]; then
+        echo "⚠️  Config non trovato per $epic, uso backtest config"
+        config="BKTEST/config-lstm-backtest.ini"
+    fi
+    
+    echo "🚀 Avvio servizi per $epic..."
+    
+    # Start orchestrator (hourly predictions) con nohup
+    nohup ~/miniconda3/envs/profeta/bin/python Run_profeta_real_time.py --config "$config" --epic "$epic" > ~/Profeta/logs/orchestrator-${epic}-live.log 2>&1 &
+    ORCH_PID=$!
+    echo "  ✅ Orchestrator $epic: PID $ORCH_PID"
+    
+    # Start trading bot (poll every 30s) con nohup
+    nohup ~/miniconda3/envs/profeta/bin/python profeta_trading_bot.py --config "$config" --epic "$epic" > ~/Profeta/logs/trading-bot-${epic}-live.log 2>&1 &
+    BOT_PID=$!
+    echo "  ✅ Trading Bot $epic: PID $BOT_PID"
+    
+    # Save PIDs
+    echo $ORCH_PID > /tmp/orchestrator-${epic}.pid
+    echo $BOT_PID > /tmp/trading-bot-${epic}.pid
+    
+    echo ""
+}
+
+# Avvia servizi per EURUSD e BTCUSD
+start_epic_services "EURUSD"
+sleep 5  # Attendi 5 secondi tra epic
+start_epic_services "BTCUSD"
+
+echo "╔════════════════════════════════════════════════════════════════╗"
+echo "║  TUTTI I SERVIZI SONO STATI AVVIATI                            ║"
+echo "╚════════════════════════════════════════════════════════════════╝"
 echo ""
 echo "=== Log Files (all in ~/Profeta/logs/) ==="
-echo "  📄 orchestrator-EURUSD.log  - Orchestrator cycle logs"
-echo "  📄 trading-bot-EURUSD.log   - Trading bot logs"
-echo "  📄 profeta-v5.log           - Main prediction engine logs"
+echo "  📄 orchestrator-EURUSD-live.log"
+echo "  📄 orchestrator-BTCUSD-live.log"
+echo "  📄 trading-bot-EURUSD-live.log"
+echo "  📄 trading-bot-BTCUSD-live.log"
+echo "  📄 profeta-v5.log"
 echo ""
-echo "To monitor:"
-echo "  tail -f ~/Profeta/logs/profeta-v5.log"
-echo "  tail -f ~/Profeta/logs/trading-bot-EURUSD.log"
-echo "  tail -f ~/Profeta/logs/orchestrator-EURUSD.log"
+echo "=== Monitoraggio ==="
+echo "  tail -f ~/Profeta/logs/orchestrator-EURUSD-live.log"
+echo "  tail -f ~/Profeta/logs/trading-bot-EURUSD-live.log"
+echo ""
+echo "  Oppure: ./logs-monitor.sh EURUSD (o BTCUSD)"
+echo ""
+echo "=== Stop Services ==="
+echo "  ./stop-epic-services.sh  (o pkill -f profeta)"
+echo ""
