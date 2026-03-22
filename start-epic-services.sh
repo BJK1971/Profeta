@@ -48,10 +48,12 @@ start_epic_services() {
     echo ""
 }
 
-# Avvia servizi per EURUSD e BTCUSD
+# Avvia servizi per EURUSD, BTCUSD e NVDA
 start_epic_services "EURUSD"
 sleep 5  # Attendi 5 secondi tra epic
 start_epic_services "BTCUSD"
+sleep 5
+start_epic_services "NVDA"
 
 echo "╔════════════════════════════════════════════════════════════════╗"
 echo "║  TUTTI I SERVIZI SONO STATI AVVIATI                            ║"

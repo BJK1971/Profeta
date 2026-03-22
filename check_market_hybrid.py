@@ -32,11 +32,17 @@ logger = logging.getLogger("MarketStatusHybrid")
 
 # Market Type Mapping
 MARKET_TYPE_MAP = {
+    # Forex
     'EURUSD': 'forex', 'GBPUSD': 'forex', 'USDJPY': 'forex',
     'AUDUSD': 'forex', 'USDCAD': 'forex', 'USDCHF': 'forex',
+    # Crypto
     'BTCUSD': 'crypto', 'ETHUSD': 'crypto', 'XRPUSD': 'crypto',
+    # US Stocks
     'AAPL': 'stocks_us', 'TSLA': 'stocks_us', 'NVDA': 'stocks_us',
-    'VODL': 'stocks_uk', 'BP': 'stocks_uk',
+    'MSFT': 'stocks_us', 'GOOGL': 'stocks_us', 'AMZN': 'stocks_us',
+    'META': 'stocks_us', 'AMD': 'stocks_us', 'INTC': 'stocks_us',
+    # UK Stocks
+    'VODL': 'stocks_uk', 'BP': 'stocks_uk', 'HSBA': 'stocks_uk',
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════════════════
