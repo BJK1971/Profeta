@@ -546,31 +546,31 @@ class ProfetaTradingBot:
                 # Controlla cosa bolle in pentola su Capital.com
                 open_pos = self.broker.get_open_positions()
                 current_market_dir = None
-                
+
                 # Cerca l'epic corrente
                 for p in open_pos:
                     if p.get("market", {}).get("epic") == self.epic:
                         current_market_dir = p.get("position", {}).get("direction")
                         break
-                        
+
                 if current_market_dir == target_direction_str:
                     target_time = last_row.get("timestamp", last_row.get("Date", "Sconosciuta"))
                     self.logger.info(f"Conferma Strategia: Manteniamo aperta la posizione {current_market_dir} su {self.epic}. Le previsioni confermano il target per le ore {target_time}.")
-                    return
+                    return  # Già aperto, non fare nulla
                 elif current_market_dir is not None and current_market_dir != target_direction_str:
                     # Direzione cambiata rispetto a quella aperta: liquida tutto
-                    self.logger.info(f"Inversione di trand da {current_market_dir} a {target_direction_str}. Chiusura posizioni in corso!")
+                    self.logger.info(f"Inversione di trend da {current_market_dir} a {target_direction_str}. Chiusura posizioni in corso!")
                     self.broker.close_all_positions(self.epic)
-                else:
-                    # Nessuna posizione, ma abbiamo un target. Liquida sicurezze (es. monete pendenti) se ci sono
-                    pass
+                    # Dopo aver chiuso, procedi con apertura nuova posizione
+                    self.logger.info(f"Posizione chiusa, apro nuova posizione {target_direction_str}...")
+                # else: Nessuna posizione aperta, procedi con apertura
             # ------------------------------------
 
             # Buy se la direzione è UP (1) e il cambiamento stimato supera la soglia di attivazione
             if target_direction_str == "BUY":
                  self.logger.info("SEGNALE LONG SCATTATO: Esecuzione ordine di BUY a Mercato")
                  self.broker.place_market_order(self.epic, "BUY", self.trade_size, self.sl_pts, self.tp_pts)
-            
+
             # Sell se la direzione è DOWN (-1) e la magnitudo del crollo stimato (-change_pct) supera la soglia
             elif target_direction_str == "SELL":
                  self.logger.info("SEGNALE SHORT SCATTATO: Esecuzione ordine di SELL (Short) a Mercato")
