@@ -328,17 +328,12 @@ class ProfetaTradingBot:
         if not self.epic:
             self.epic = self.config["CAPITAL_DEMO"].get("epic", "BTCUSD")
 
-        # Inizializza logger - Centralizzato in ~/Profeta/logs/
-        log_dir = os.path.expanduser("~/Profeta/logs")
-        os.makedirs(log_dir, exist_ok=True)
-        log_file = os.path.join(log_dir, f"trading-bot-{self.epic}.log")
-        
+        # Inizializza logger - Solo StreamHandler (nohup gestisce il file)
         logging.basicConfig(
             level=logging.INFO,
             format='%(asctime)s | %(levelname)-8s | %(name)s | %(message)s',
             handlers=[
-                logging.FileHandler(log_file),
-                logging.StreamHandler()
+                logging.StreamHandler()  # Solo console, nohup scrive su file
             ]
         )
         self.logger = logging.getLogger("ProfetaTradingBot")
