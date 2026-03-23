@@ -212,18 +212,18 @@ if __name__ == "__main__":
     logger.info(f"Scheduling: minuto :{SCHEDULE_MINUTE} di ogni ora")
     logger.info("=" * 70)
     
-    # Flag per tracciare se è il primo ciclo
+    # Esegui SUBITO il primo ciclo (senza attesa)
+    # Lo scheduling si applica solo dai cicli successivi
     first_cycle = True
 
     while True:
         # Salva il tempo attuale PRIMA di calcolare l'attesa
         now = datetime.datetime.now(datetime.timezone.utc)
         
-        # Calcola tempo di attesa PRIMA di eseguire (con scheduling)
+        # Calcola tempo di attesa per il PROSSIMO ciclo (con scheduling)
         waiting_time, current_time = calculate_waiting_time(interval, SCHEDULE_MINUTE)
 
         # Calcola quando dovrebbe iniziare il prossimo ciclo
-        # USA 'now' (tempo attuale) invece di 'current_time' (che è modificato)
         next_time = now + waiting_time
         waiting_time_seconds = int(ceil(waiting_time.total_seconds()))
 
@@ -231,27 +231,30 @@ if __name__ == "__main__":
         minutes, seconds = divmod(remainder, 60)
 
         logger.info("")
-        logger.info(f"--- Inizio ciclo di esecuzione (attesa: {hours}h {minutes}m {seconds}s) ---")
+        logger.info(f"--- Inizio ciclo di esecuzione ---")
         logger.info("")
 
-        # SE È IL PRIMO CICLO: aspetta ORA prima di eseguire
-        # Questo assicura che tutti gli epic partano ai loro minuti schedulati
-        if first_cycle and waiting_time_seconds > 0:
-            logger.info(f"⏱️  PRIMO CICLO: Attesa di {hours}h {minutes}m {seconds}s per allineamento scheduling...")
+        # SE È IL PRIMO CICLO: esegui SUBITO, poi aspetta per i cicli successivi
+        if first_cycle:
+            logger.info("PRIMO CICLO: Esecuzione immediata (scheduling si applica dai cicli successivi)")
+            logger.info("")
+            first_cycle = False
+        else:
+            # Cicli successivi: aspetta il tempo schedulato
+            logger.info(f"⏱️  Attesa di {hours}h {minutes}m {seconds}s per allineamento scheduling...")
             logger.info("")
             for remaining in range(waiting_time_seconds, 0, -1):
                 mins, secs = divmod(remaining, 60)
-                print(f"Attesa primo ciclo: {mins:02d}:{secs:02d}", end="\r")
+                print(f"Tempo rimanente: {mins:02d}:{secs:02d}", end="\r")
                 time.sleep(1)
             print()  # Newline after countdown
-            first_cycle = False  # Dai cicli successivi, non aspettare due volte
 
         # Check mercato prima di eseguire
         logger.info("Verifica stato mercato...")
         if not check_market_open(config_path, epic, logger):
             logger.info("")
             logger.info("⚠️  Mercato CHIUSO - Skip ciclo corrente")
-            logger.info(f"⏱️  Prossimo tentativo tra {waiting_time}")
+            logger.info(f"⏱️  Prossimo tentativo tra {hours}h {minutes}m {seconds}s")
             logger.info("")
         else:
             logger.info("")
@@ -259,13 +262,12 @@ if __name__ == "__main__":
             logger.info("")
             run_scripts(current_time, config_path, epic)
 
-        # Ora attendi fino al prossimo ciclo (per i cicli successivi al primo)
-        if not first_cycle:
-            logger.info("")
-            logger.info(f"--- Fine ciclo. Attesa per {hours}h {minutes}m {seconds}s ---")
-            logger.info("")
-            for remaining in range(waiting_time_seconds, 0, -1):
-                mins, secs = divmod(remaining, 60)
-                print(f"Tempo rimanente: {mins:02d}:{secs:02d}", end="\r")
-                time.sleep(1)
+        # Attendi fino al prossimo ciclo
+        logger.info("")
+        logger.info(f"--- Fine ciclo. Prossima esecuzione tra {hours}h {minutes}m {seconds}s ---")
+        logger.info("")
+        for remaining in range(waiting_time_seconds, 0, -1):
+            mins, secs = divmod(remaining, 60)
+            print(f"Prossimo ciclo: {mins:02d}:{secs:02d}", end="\r")
+            time.sleep(1)
 
