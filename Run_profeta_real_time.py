@@ -207,7 +207,6 @@ if __name__ == "__main__":
     logger.info("=" * 70)
     logger.info(f"PROFETA ORCHESTRATOR - EPIC: {epic}")
     logger.info(f"Config: {config_path}")
-    logger.info(f"Log file: {log_file}")
     logger.info(f"Scheduling: minuto :{SCHEDULE_MINUTE} di ogni ora")
     logger.info("=" * 70)
     
