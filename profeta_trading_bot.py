@@ -329,12 +329,14 @@ class ProfetaTradingBot:
             self.epic = self.config["CAPITAL_DEMO"].get("epic", "BTCUSD")
 
         # Inizializza logger - Solo StreamHandler (nohup gestisce il file)
+        # force=True assicura di sovrascrivere eventuali handler precedenti
         logging.basicConfig(
             level=logging.INFO,
             format='%(asctime)s | %(levelname)-8s | %(name)s | %(message)s',
             handlers=[
                 logging.StreamHandler()  # Solo console, nohup scrive su file
-            ]
+            ],
+            force=True  # Forza reset configurazione precedente
         )
         self.logger = logging.getLogger("ProfetaTradingBot")
         

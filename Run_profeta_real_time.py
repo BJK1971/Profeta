@@ -191,15 +191,16 @@ if __name__ == "__main__":
     # Setup logging - Centralizzato in ~/Profeta/logs/
     log_dir = os.path.expanduser("~/Profeta/logs")
     os.makedirs(log_dir, exist_ok=True)
-    log_file = os.path.join(log_dir, f"orchestrator-{epic}.log")
-    
+    # NOTA: Non creiamo più log file qui, usa solo StreamHandler
+    # nohup redirect gestisce il logging su file
+
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s | %(levelname)-8s | %(message)s',
         handlers=[
-            logging.FileHandler(log_file),
-            logging.StreamHandler()
-        ]
+            logging.StreamHandler()  # Solo console, nohup scrive su file
+        ],
+        force=True  # Forza reset configurazione precedente
     )
     logger = logging.getLogger("ProfetaOrchestrator")
     
