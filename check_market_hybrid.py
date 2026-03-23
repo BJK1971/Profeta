@@ -43,6 +43,9 @@ MARKET_TYPE_MAP = {
     'META': 'stocks_us', 'AMD': 'stocks_us', 'INTC': 'stocks_us',
     # UK Stocks
     'VODL': 'stocks_uk', 'BP': 'stocks_uk', 'HSBA': 'stocks_uk',
+    # Commodities (orari simili al forex: 23/5)
+    'GOLD': 'commodity', 'SILVER': 'commodity', 'OIL_CRUDE': 'commodity',
+    'XAUUSD': 'commodity', 'XAGUSD': 'commodity',
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -236,14 +239,14 @@ def check_market_local(epic: str) -> dict:
             'provider': 'local'
         }
     
-    # Forex: aperto 24/5
-    if market_type == 'forex':
-        # Forex apre Domenica 22:00 UTC, chiude Venerdì 22:00 UTC
-        # Se siamo in settimana (Lun-Ven), è aperto
+    # Forex / Commodity: aperto 24/5
+    if market_type in ('forex', 'commodity'):
+        # Forex/Commodity apre Domenica 22:00 UTC, chiude Venerdì 22:00 UTC
+        label = 'Commodity' if market_type == 'commodity' else 'Forex'
         return {
             'is_open': True,
             'status': 'OPEN',
-            'message': f'{epic}: Forex - mercato aperto',
+            'message': f'{epic}: {label} - mercato aperto',
             'provider': 'local'
         }
     

@@ -48,13 +48,13 @@ start_epic_services() {
     echo ""
 }
 
-# Avvia servizi per EURUSD, BTCUSD e NVDA
+# Avvia servizi per EURUSD, BTCUSD e GOLD
 # IMPORTANTE: Delay di 15 secondi tra ogni epic per evitare rate limit Capital.com (429)
 start_epic_services "EURUSD"
 sleep 15  # Attendi 15 secondi per evitare 429 Too Many Requests
 start_epic_services "BTCUSD"
 sleep 15  # Attendi 15 secondi per evitare 429 Too Many Requests
-start_epic_services "NVDA"
+start_epic_services "GOLD"
 
 echo "╔════════════════════════════════════════════════════════════════╗"
 echo "║  TUTTI I SERVIZI SONO STATI AVVIATI                            ║"
@@ -63,8 +63,10 @@ echo ""
 echo "=== Log Files (all in ~/Profeta/logs/) ==="
 echo "  📄 orchestrator-EURUSD-live.log"
 echo "  📄 orchestrator-BTCUSD-live.log"
+echo "  📄 orchestrator-GOLD-live.log"
 echo "  📄 trading-bot-EURUSD-live.log"
 echo "  📄 trading-bot-BTCUSD-live.log"
+echo "  📄 trading-bot-GOLD-live.log"
 echo "  📄 profeta-v5.log"
 echo ""
 echo "=== Monitoraggio ==="

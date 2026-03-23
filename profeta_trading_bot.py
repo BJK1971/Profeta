@@ -183,24 +183,38 @@ class CapitalDemoBroker:
                 'offer': None
             }
 
+    def confirm_order(self, deal_reference: str) -> dict:
+        """
+        Verifica l'esito definitivo di un ordine tramite l'endpoint /confirms.
+        Capital.com è asincrono: dealReference != conferma esecuzione.
+        """
+        url = f"{self.base_url}confirms/{deal_reference}"
+        time.sleep(2)  # Attende elaborazione asincrona Capital.com
+        try:
+            response = requests.get(url, headers=self.headers)
+            response.raise_for_status()
+            data = response.json()
+            status = data.get("dealStatus", "UNKNOWN")
+            reason = data.get("reason", "")
+            deal_id = data.get("dealId", "")
+            if status == "ACCEPTED":
+                self.logger.info(f"Ordine CONFERMATO: dealId={deal_id} status={status}")
+            else:
+                self.logger.error(f"Ordine RIGETTATO: status={status} reason={reason} | dettagli: {data}")
+            return data
+        except Exception as e:
+            self.logger.error(f"Errore conferma ordine {deal_reference}: {e}")
+            return {}
+
     def place_market_order(self, epic: str, direction: str, size: float, sl_points: float = None, tp_points: float = None):
         """
         Piazza un ordine a mercato sul conto usando le REST API reali.
+        stopDistance e profitDistance sono in pips/punti (unità nativa Capital.com).
+        - EURUSD: 1 pip = 0.0001, sl_pts=60 → stopDistance=60 pips → ΔP=0.006 → P/L=size×0.006
+        - BTCUSD/NVDA: sl_pts in USD direttamente → stopDistance=sl_pts USD
         """
         url = f"{self.base_url}positions"
-        
-        # Converti punti in distanza prezzo per forex (EURUSD: 1 pip = 0.0001)
-        # Per crypto (BTCUSD), usa i punti direttamente
-        sl_distance = sl_points
-        tp_distance = tp_points
-        
-        if epic in ['EURUSD', 'GBPUSD', 'USDJPY']:
-            # Forex: converti pips in prezzo
-            if sl_points is not None:
-                sl_distance = sl_points * 0.0001  # 50 pips = 0.0050
-            if tp_points is not None:
-                tp_distance = tp_points * 0.0001  # 150 pips = 0.0150
-        
+
         payload = {
             "epic": epic,
             "direction": direction,
@@ -208,19 +222,32 @@ class CapitalDemoBroker:
             "guaranteedStop": False
         }
 
-        # Aggiunta opzionale di Stop Loss e Take Profit in distanza prezzo
+        # stopDistance/profitDistance: Capital.com usa distanza PREZZO per forex, punti USD per crypto.
+        # EURUSD/forex: sl_pts=60 pips → 60×0.0001=0.006 prezzo distance
+        # BTCUSD/NVDA/azioni: sl_pts già in USD → nessuna conversione
+        sl_distance = sl_points
+        tp_distance = tp_points
+        if epic in ('EURUSD', 'GBPUSD', 'USDJPY', 'EURJPY', 'AUDUSD', 'USDCAD', 'USDCHF'):
+            if sl_points is not None:
+                sl_distance = round(sl_points * 0.0001, 6)
+            if tp_points is not None:
+                tp_distance = round(tp_points * 0.0001, 6)
+
         if sl_distance is not None and sl_distance > 0:
-            payload["stopDistance"] = str(sl_distance)
+            payload["stopDistance"] = sl_distance
         if tp_distance is not None and tp_distance > 0:
-            payload["profitDistance"] = str(tp_distance)
-            
-        
+            payload["profitDistance"] = tp_distance
+
         try:
-            self.logger.info(f"Invio ordine {direction} su {epic} (Size: {size})")
+            self.logger.info(f"Invio ordine {direction} su {epic} (Size: {size}, SL: {sl_points} pts, TP: {tp_points} pts)")
             response = requests.post(url, json=payload, headers=self.headers)
             response.raise_for_status()
             data = response.json()
-            self.logger.info(f"Ordine eseguito: {data}")
+            deal_ref = data.get("dealReference", "")
+            self.logger.info(f"Ordine inviato: dealReference={deal_ref}")
+            # Verifica conferma asincrona Capital.com
+            if deal_ref:
+                self.confirm_order(deal_ref)
             return data
         except requests.exceptions.HTTPError as he:
             if he.response.status_code == 401:
@@ -241,10 +268,10 @@ class CapitalDemoBroker:
             response.raise_for_status()
             return response.json().get("positions", [])
         except requests.exceptions.HTTPError as he:
-            if he.response.status_code == 401:
-                self.logger.warning("Token scaduto (401). Tento la ri-autenticazione...")
+            if he.response.status_code in (400, 401):
+                self.logger.warning(f"Sessione scaduta ({he.response.status_code}) in get_positions. Ri-autenticazione...")
                 if self.authenticate():
-                    return self.get_open_positions() # Riprova 1 volta
+                    return self.get_open_positions()
             self.logger.error(f"Errore HTTP recupero posizioni: {he}")
             return []
         except Exception as e:
@@ -264,6 +291,13 @@ class CapitalDemoBroker:
                 deposit = acc.get("balance", {}).get("deposit", 0)
                 self.logger.info(f"ACCOUNT INFO | Propr.: {acc.get('accountName')} | Balance: {balance} {acc.get('currency')} | Equity: {deposit}")
             return data
+        except requests.exceptions.HTTPError as he:
+            if he.response.status_code in (400, 401):
+                self.logger.warning(f"Sessione scaduta ({he.response.status_code}) in get_accounts. Ri-autenticazione...")
+                if self.authenticate():
+                    return self.get_accounts()
+            self.logger.error(f"Errore recupero conti: {he}")
+            return None
         except Exception as e:
             self.logger.error(f"Errore recupero conti: {e}")
             return None
@@ -360,6 +394,8 @@ class ProfetaTradingBot:
         self.broker.authenticate()
 
         self.last_processed_tms = None
+        self.last_position_open = False  # Traccia se la posizione era aperta al ciclo precedente
+        self.last_auth_time = time.time()  # Per re-auth preventivo ogni 8 minuti
 
         # Lettura Base Parametri Operativi e Rischio
         size_key = f"trade_size_{self.epic}"
@@ -390,24 +426,8 @@ class ProfetaTradingBot:
                         self.logger.warning(f"La size configurata ({self.trade_size}) è minore del minimo. Adeguamento a {min_deal_size}")
                         self.trade_size = min_deal_size
                 
-                # SL / TP Adeguamento
-                min_stop_dist = rules.get("minNormalStopOrLimitDistance", {}).get("value")
-                if min_stop_dist is not None:
-                    min_stop_dist = float(min_stop_dist)
-                    self.logger.info(f"API Capital.com riporta minNormalStopOrLimitDistance = {min_stop_dist} per {self.epic}")
-                    
-                    if self.sl_pts > 100 and min_stop_dist < 1: 
-                        # Fallback di sicurezza: se abbiamo configurato "2000" ma l'asset usa decimali (Forex) 
-                        self.logger.warning(f"La SL configurata ({self.sl_pts}) sembra essere in formato Crypto (punti crudi), ma l'API usa {min_stop_dist}. Forza adeguamento intelligente.")
-                        self.sl_pts = min_stop_dist * 2.0  # Usiamo il doppio del minimo come safe stop
-
-                    if self.sl_pts < min_stop_dist:
-                        self.logger.warning(f"La SL configurata ({self.sl_pts}) è minore del minimo consentito. Adeguamento a {min_stop_dist}")
-                        self.sl_pts = min_stop_dist
-                        
-                    if self.tp_pts < min_stop_dist or self.tp_pts > 100:
-                        self.logger.warning(f"Forzatura TP adeguato al mercato.")
-                        self.tp_pts = min_stop_dist * 4.0 # Fallback dinamico
+                # SL / TP: usa i valori dalla config senza override automatici.
+                # I valori sono già calibrati per ottenere ~50€ SL e ~100€ TP per asset.
                         
         except Exception as e:
             self.logger.error(f"Errore nel recupero dinamico info mercato: {e}")
@@ -431,6 +451,12 @@ class ProfetaTradingBot:
         except Exception as e:
             self.logger.warning(f"Errore market check: {e} - procedo comunque")
         
+        # --- Re-auth preventivo ogni 8 minuti (token Capital.com scadono ~10 min) ---
+        if time.time() - self.last_auth_time > 480:
+            self.logger.debug("Re-autenticazione preventiva token Capital.com...")
+            if self.broker.authenticate():
+                self.last_auth_time = time.time()
+
         # --- Monitoraggio Conti ---
         try:
             self.broker.get_accounts()
@@ -438,34 +464,46 @@ class ProfetaTradingBot:
             pass
             
         # --- Monitoraggio P/L Posizioni Aperte ---
+        epic_position_open = self.last_position_open  # Default: assume invariato se errore di rete
         try:
             open_pos = self.broker.get_open_positions()
-            if open_pos:
+            epic_position_open = any(p.get("market", {}).get("epic") == self.epic for p in open_pos)
+            # Filtra solo le posizioni dell'epic di questo bot
+            my_positions = [p for p in open_pos if p.get("market", {}).get("epic") == self.epic]
+            if my_positions:
                 total_upl = 0.0
                 log_entries = []
-                for p in open_pos:
-                    epic_name = p.get("market", {}).get("epic", "UNKNOWN")
+                for p in my_positions:
                     pos = p.get("position", {})
                     direction = pos.get("direction", "")
                     size = float(pos.get("size", 0))
                     open_level = float(pos.get("level", 0))
-                    
+
                     # Estrazione P/L dal JSON restituito da Capital.com (spesso definito 'upl').
                     upl = float(pos.get("upl", 0.0))
                     total_upl += upl
-                    
+
                     upl_pct = 0.0
                     if size > 0 and open_level > 0:
                         trade_value = size * open_level
                         upl_pct = (upl / trade_value) * 100 if trade_value > 0 else 0.0
-                    
-                    log_entries.append(f"[{direction} {size} {epic_name} -> P/L: {upl:.2f} $ ({upl_pct:+.2f}%)]")
-                
-                self.logger.info(f"STATUS TRADES: {', '.join(log_entries)} | TOTALE P/L: {total_upl:.2f} $")
+
+                    log_entries.append(f"[{direction} {size} {self.epic} -> P/L: {upl:.2f} $ ({upl_pct:+.2f}%)]")
+
+                self.logger.info(f"STATUS TRADES: {', '.join(log_entries)} | P/L: {total_upl:.2f} $")
             else:
-                self.logger.debug("Nessuna posizione aperta.")
+                self.logger.debug(f"Nessuna posizione aperta su {self.epic}.")
         except Exception:
              pass # Silenzioso su errori di rete isolati
+
+        # Rilevamento chiusura inattesa della posizione (SL/TP/chiusura manuale)
+        # Se al ciclo precedente la posizione era aperta e ora non c'è più,
+        # resettiamo last_processed_tms per forzare una nuova valutazione del segnale
+        # anche se il timestamp del CSV non è ancora cambiato.
+        if self.last_position_open and not epic_position_open:
+            self.logger.info(f"Posizione {self.epic} chiusa (SL/TP/manuale). Forzo ri-valutazione segnale.")
+            self.last_processed_tms = None
+        self.last_position_open = epic_position_open
         # ----------------------------------------
 
         try:

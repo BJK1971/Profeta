@@ -22,6 +22,7 @@ o aggiorna i percorsi degli script con i relativi path completi."""
 import argparse
 import configparser
 import datetime
+import fcntl
 import logging
 import os
 import subprocess
@@ -29,12 +30,52 @@ import sys
 import time
 from math import ceil
 
+# ─── GPU Lock ───────────────────────────────────────────────────────────────
+# File lock condiviso tra tutti gli orchestratori per serializzare i training.
+# Solo profeta-universal.py (GPU-intensive) viene protetto dal lock.
+GPU_LOCK_PATH = "/tmp/profeta_gpu.lock"
+
+def acquire_gpu_lock(epic: str, logger, timeout: int = 1800):
+    """Attende finché la GPU è libera, poi acquisisce il lock."""
+    lock_file = open(GPU_LOCK_PATH, "a+")
+    start = time.time()
+    while True:
+        try:
+            fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            lock_file.seek(0)
+            lock_file.truncate()
+            lock_file.write(f"{epic}:{os.getpid()}")
+            lock_file.flush()
+            logger.info(f"GPU lock acquisito per {epic}")
+            return lock_file
+        except BlockingIOError:
+            elapsed = int(time.time() - start)
+            if elapsed > timeout:
+                logger.warning(f"Timeout GPU lock ({timeout}s). Procedo comunque.")
+                return lock_file
+            if elapsed % 30 == 0:
+                lock_file.seek(0)
+                owner = lock_file.read().strip() or "sconosciuto"
+                logger.info(f"GPU occupata ({owner}), attesa... [{elapsed}s]")
+            time.sleep(10)
+
+def release_gpu_lock(lock_file, epic: str, logger):
+    """Rilascia il lock GPU."""
+    try:
+        fcntl.flock(lock_file, fcntl.LOCK_UN)
+        lock_file.close()
+        logger.info(f"GPU lock rilasciato da {epic}")
+    except Exception:
+        pass
+# ─────────────────────────────────────────────────────────────────────────────
+
 # Import per market check ibrido
 from check_market_hybrid import check_market_status
 
 parser = argparse.ArgumentParser(description="Profeta Real-Time Orchestrator")
 parser.add_argument('--config', help='Path del file di configurazione (.ini)')
 parser.add_argument('--epic', help='Override dell\'asset Epic (es. BTCUSD)')
+parser.add_argument('--force-now', action='store_true', help='Esegui subito il primo ciclo senza aspettare lo slot schedulato')
 args = parser.parse_args()
 
 # Determina il file di configurazione
@@ -151,42 +192,47 @@ def check_market_open(config_path: str, epic: str, logger) -> bool:
 def run_scripts(current_time: datetime.datetime, config_path: str, epic: str):
     # Get absolute path to script directory
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    
+    logger = logging.getLogger("ProfetaOrchestrator")
+
     train_csv = os.path.join(script_dir, f"Trading_live_data/dati-training_{epic}.csv")
     trade_csv = os.path.join(script_dir, f"Trading_live_data/dati-trading_{epic}.csv")
 
-    scripts = [
+    # Download dati (non GPU-intensive, eseguiti senza lock)
+    download_scripts = [
         [
             os.path.join(script_dir, "capital_data_download.py"),
-            train_csv,
-            "8000",
-            current_time.isoformat(),
-            "--config", config_path,
-            "--epic", epic,
+            train_csv, "8000", current_time.isoformat(),
+            "--config", config_path, "--epic", epic,
         ],
         [
             os.path.join(script_dir, "capital_data_download.py"),
-            trade_csv,
-            "1500",
-            current_time.isoformat(),
-            "--config", config_path,
-            "--epic", epic,
+            trade_csv, "1500", current_time.isoformat(),
+            "--config", config_path, "--epic", epic,
         ],
-        [os.path.join(script_dir, "profeta-universal.py"), "--config", config_path, "--epic", epic],
     ]
-    for script in scripts:
+    for script in download_scripts:
         try:
-            print(f"Esecuzione di {script}...")
-            # Use sys.executable to get the correct Python interpreter
-            import sys
+            print(f"Esecuzione di {script[0]}...")
             subprocess.run([sys.executable] + script, check=True, cwd=script_dir)
             print(f"Completato: {script[0]}\n")
         except subprocess.CalledProcessError as e:
             print(f"Errore durante l'esecuzione di {script}: {e}\n")
-        except FileNotFoundError as e:
-            print(
-                f"Script non trovato: {script}. Assicurati che sia nella stessa directory o fornisci il percorso completo.\n"
-            )
+        except FileNotFoundError:
+            print(f"Script non trovato: {script[0]}\n")
+
+    # Training LSTM (GPU-intensive): serializzato tramite GPU lock
+    training_script = [os.path.join(script_dir, "profeta-universal.py"), "--config", config_path, "--epic", epic]
+    lock_file = acquire_gpu_lock(epic, logger)
+    try:
+        print(f"Esecuzione di {training_script[0]}...")
+        subprocess.run([sys.executable] + training_script, check=True, cwd=script_dir)
+        print(f"Completato: {training_script[0]}\n")
+    except subprocess.CalledProcessError as e:
+        print(f"Errore durante l'esecuzione di profeta-universal.py: {e}\n")
+    except FileNotFoundError:
+        print(f"Script non trovato: {training_script[0]}\n")
+    finally:
+        release_gpu_lock(lock_file, epic, logger)
 
 
 if __name__ == "__main__":
