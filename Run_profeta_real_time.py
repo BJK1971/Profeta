@@ -47,9 +47,11 @@ else:
 config = configparser.ConfigParser()
 config.read(config_path)
 
-# Carica scheduling config (opzionale)
+# Carica scheduling config (opzionale) - Usa percorso assoluto
+script_dir = os.path.dirname(os.path.abspath(__file__))
+schedule_config_path = os.path.join(script_dir, 'orchestrator-schedule.ini')
 schedule_config = configparser.ConfigParser()
-schedule_config.read('orchestrator-schedule.ini')
+schedule_config.read(schedule_config_path)
 
 # Determina l'epic
 epic_override = args.epic
