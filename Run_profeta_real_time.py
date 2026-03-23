@@ -47,6 +47,10 @@ else:
 config = configparser.ConfigParser()
 config.read(config_path)
 
+# Carica scheduling config (opzionale)
+schedule_config = configparser.ConfigParser()
+schedule_config.read('orchestrator-schedule.ini')
+
 # Determina l'epic
 epic_override = args.epic
 if epic_override:
@@ -54,21 +58,55 @@ if epic_override:
 else:
     epic = config["CAPITAL_DEMO"].get("epic", "BTCUSD")
 
+# Determina minuto di scheduling per questo epic
+# Se non configurato, usa 0 (default)
+if schedule_config.has_section('SCHEDULING'):
+    SCHEDULE_MINUTE = schedule_config.getint('SCHEDULING', epic, fallback=0)
+else:
+    SCHEDULE_MINUTE = 0
+
 interval = config["PREDICTION"].get("freq", fallback="H")
 
 
 def calculate_waiting_time(
     interval: str,
+    schedule_minute: int = 0,
 ) -> tuple[datetime.timedelta, datetime.datetime]:
+    """
+    Calcola tempo di attesa per sincronizzare orchestrator.
+    
+    Args:
+        interval: 'H' (hourly), 'M' (10 min), etc.
+        schedule_minute: Minuto dell'ora in cui partire (0-59)
+        
+    Returns:
+        (waiting_time, current_time)
+    """
     current_time = datetime.datetime.now(datetime.timezone.utc)
+    
     match interval:
         case "H":
-            # Sincronizza esattamente sulla prossima ora solare (+ 1 min di ritardo tecnico API broker)
-            waiting_time = datetime.timedelta(hours=1, minutes=1)
-            current_time = current_time.replace(minute=0, second=0, microsecond=0)
+            # Sincronizza sul minuto configurato
+            # Es: schedule_minute=10 → parte alle :10 di ogni ora
+            waiting_time = datetime.timedelta(hours=1)
+            
+            # Se siamo PRIMA del minuto configurato, aspetta fino a quello
+            # Se siamo DOPO, aspetta il minuto configurato dell'ora prossima
+            if current_time.minute < schedule_minute:
+                # Stessa ora, minuto configurato
+                delta_minutes = schedule_minute - current_time.minute
+            else:
+                # Ora prossima, minuto configurato
+                delta_minutes = (60 - current_time.minute) + schedule_minute
+            
+            waiting_time = datetime.timedelta(minutes=delta_minutes)
+            current_time = current_time.replace(minute=schedule_minute, second=0, microsecond=0)
+            
         case "M":
+            # 10 minuti (non usato per scheduling)
             waiting_time = datetime.timedelta(minutes=10)
             current_time = current_time.replace(second=0, microsecond=0)
+            
         case _:
             print("Intervallo non valido, impostato a 3 ore.")
             waiting_time = datetime.timedelta(hours=3)
@@ -169,11 +207,12 @@ if __name__ == "__main__":
     logger.info(f"PROFETA ORCHESTRATOR - EPIC: {epic}")
     logger.info(f"Config: {config_path}")
     logger.info(f"Log file: {log_file}")
+    logger.info(f"Scheduling: minuto :{SCHEDULE_MINUTE} di ogni ora")
     logger.info("=" * 70)
     
     while True:
-        # Calcola tempo di attesa PRIMA di eseguire
-        waiting_time, current_time = calculate_waiting_time(interval)
+        # Calcola tempo di attesa PRIMA di eseguire (con scheduling)
+        waiting_time, current_time = calculate_waiting_time(interval, SCHEDULE_MINUTE)
         
         # Calcola quando dovrebbe iniziare il prossimo ciclo
         next_time = current_time + waiting_time
