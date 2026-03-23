@@ -216,20 +216,16 @@ if __name__ == "__main__":
     first_cycle = True
 
     while True:
+        # Salva il tempo attuale PRIMA di calcolare l'attesa
+        now = datetime.datetime.now(datetime.timezone.utc)
+        
         # Calcola tempo di attesa PRIMA di eseguire (con scheduling)
         waiting_time, current_time = calculate_waiting_time(interval, SCHEDULE_MINUTE)
 
         # Calcola quando dovrebbe iniziare il prossimo ciclo
-        next_time = current_time + waiting_time
-        waiting_time_seconds = (
-            ceil(
-                (
-                    next_time - datetime.datetime.now(datetime.timezone.utc)
-                ).total_seconds()
-            )
-            if next_time > datetime.datetime.now(datetime.timezone.utc)
-            else 1
-        )
+        # USA 'now' (tempo attuale) invece di 'current_time' (che è modificato)
+        next_time = now + waiting_time
+        waiting_time_seconds = int(ceil(waiting_time.total_seconds()))
 
         hours, remainder = divmod(waiting_time_seconds, 3600)
         minutes, seconds = divmod(remainder, 60)
