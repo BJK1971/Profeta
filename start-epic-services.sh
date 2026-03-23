@@ -49,10 +49,11 @@ start_epic_services() {
 }
 
 # Avvia servizi per EURUSD, BTCUSD e NVDA
+# IMPORTANTE: Delay di 15 secondi tra ogni epic per evitare rate limit Capital.com (429)
 start_epic_services "EURUSD"
-sleep 5  # Attendi 5 secondi tra epic
+sleep 15  # Attendi 15 secondi per evitare 429 Too Many Requests
 start_epic_services "BTCUSD"
-sleep 5
+sleep 15  # Attendi 15 secondi per evitare 429 Too Many Requests
 start_epic_services "NVDA"
 
 echo "╔════════════════════════════════════════════════════════════════╗"
