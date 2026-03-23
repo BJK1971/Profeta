@@ -188,18 +188,31 @@ class CapitalDemoBroker:
         Piazza un ordine a mercato sul conto usando le REST API reali.
         """
         url = f"{self.base_url}positions"
+        
+        # Converti punti in distanza prezzo per forex (EURUSD: 1 pip = 0.0001)
+        # Per crypto (BTCUSD), usa i punti direttamente
+        sl_distance = sl_points
+        tp_distance = tp_points
+        
+        if epic in ['EURUSD', 'GBPUSD', 'USDJPY']:
+            # Forex: converti pips in prezzo
+            if sl_points is not None:
+                sl_distance = sl_points * 0.0001  # 50 pips = 0.0050
+            if tp_points is not None:
+                tp_distance = tp_points * 0.0001  # 150 pips = 0.0150
+        
         payload = {
             "epic": epic,
             "direction": direction,
             "size": size,
             "guaranteedStop": False
         }
-        
-        # Aggiunta opzionale di Stop Loss e Take Profit in punti (distanza)
-        if sl_points is not None:
-            payload["stopDistance"] = str(sl_points)
-        if tp_points is not None:
-            payload["profitDistance"] = str(tp_points)
+
+        # Aggiunta opzionale di Stop Loss e Take Profit in distanza prezzo
+        if sl_distance is not None and sl_distance > 0:
+            payload["stopDistance"] = str(sl_distance)
+        if tp_distance is not None and tp_distance > 0:
+            payload["profitDistance"] = str(tp_distance)
             
         
         try:
