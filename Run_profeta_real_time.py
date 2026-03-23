@@ -172,9 +172,26 @@ if __name__ == "__main__":
     logger.info("=" * 70)
     
     while True:
+        # Calcola tempo di attesa PRIMA di eseguire
         waiting_time, current_time = calculate_waiting_time(interval)
+        
+        # Calcola quando dovrebbe iniziare il prossimo ciclo
+        next_time = current_time + waiting_time
+        waiting_time_seconds = (
+            ceil(
+                (
+                    next_time - datetime.datetime.now(datetime.timezone.utc)
+                ).total_seconds()
+            )
+            if next_time > datetime.datetime.now(datetime.timezone.utc)
+            else 1
+        )
+        
+        hours, remainder = divmod(waiting_time_seconds, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        
         logger.info("")
-        logger.info("--- Inizio ciclo di esecuzione ---")
+        logger.info(f"--- Inizio ciclo di esecuzione (attesa: {hours}h {minutes}m {seconds}s) ---")
         logger.info("")
         
         # Check mercato prima di eseguire
@@ -190,18 +207,7 @@ if __name__ == "__main__":
             logger.info("")
             run_scripts(current_time, config_path, epic)
         
-        next_time = current_time + waiting_time
-        waiting_time_seconds = (
-            ceil(
-                (
-                    next_time - datetime.datetime.now(datetime.timezone.utc)
-                ).total_seconds()
-            )
-            if next_time > datetime.datetime.now(datetime.timezone.utc)
-            else 1
-        )
-        hours, remainder = divmod(waiting_time_seconds, 3600)
-        minutes, seconds = divmod(remainder, 60)
+        # Ora attendi fino al prossimo ciclo
         logger.info("")
         logger.info(f"--- Fine ciclo. Attesa per {hours}h {minutes}m {seconds}s ---")
         logger.info("")
