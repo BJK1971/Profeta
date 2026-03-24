@@ -4134,10 +4134,16 @@ class PROFETAEngine:
         meta = {'domain': self.domain_profile.domain_type.value, 'subtype': self.domain_profile.subtype,
                 'num_models': self.ensemble.num_models, 'ensemble_delta': self.ensemble.ensemble_delta,
                 'classification_enabled': self.cls_config.enabled}  # Indica se classificazione attiva
-        outs['json'] = self.output_gen.generate_json(results, self._metrics, meta)
+        # Ricava epic dal model_cache_dir (es. ./MODELLI/real-time/BTCUSD → BTCUSD)
+        epic_tag = Path(self.train_config.model_cache_dir).name
+        if not epic_tag or epic_tag in ('real-time', 'models', 'MODELLI'):
+            epic_tag = ''
+        fn_suffix = f"_{epic_tag}" if epic_tag else ""
+        outs['json'] = self.output_gen.generate_json(results, self._metrics, meta, fn=f"predictions{fn_suffix}.json")
         if self.pred_config.generate_graph and hist_df is not None:
             outs['graph'] = self.output_gen.generate_graph(
-                hist_df[self.pred_config.target_column].values, hist_df.index, results, self._metrics)
+                hist_df[self.pred_config.target_column].values, hist_df.index, results, self._metrics,
+                fn=f"analysis{fn_suffix}.png")
         
         # Generazione Report PDF
         if self._should_generate_report(trigger):
