@@ -531,13 +531,16 @@ class ProfetaTradingBot:
             if df.empty:
                 return
 
-            # --- Ricerca del Segnale Migliore sull'intero Orizzonte ---
-            # Invece di guardare solo horizon=1 (spesso piatto per candele orarie), cerchiamo l'orizzonte
-            # con il segnale direzionale più forte tra tutti quelli predetti.
+            # --- Ricerca del Segnale Migliore sulle prossime 6 ore ---
+            # Limitiamo la ricerca a H+1..H+6 per catturare oscillazioni breve termine
+            # invece del drift cumulato su 71 step (sempre nella direzione del trend).
             best_row = None
             max_abs_change = -1.0
+            SHORT_HORIZON = 6
 
-            for idx, row in df.iterrows():
+            df_short = df[df["horizon"] <= SHORT_HORIZON] if "horizon" in df.columns else df
+
+            for idx, row in df_short.iterrows():
                 try:
                     chg = float(row.get("change_pct", 0))
                     d = int(row.get("direction", 0))
