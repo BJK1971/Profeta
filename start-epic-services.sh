@@ -48,13 +48,15 @@ start_epic_services() {
     echo ""
 }
 
-# Avvia servizi per EURUSD, BTCUSD e GOLD
+# Avvia servizi per EURUSD, BTCUSD, GOLD e US500
 # IMPORTANTE: Delay di 15 secondi tra ogni epic per evitare rate limit Capital.com (429)
 start_epic_services "EURUSD"
-sleep 15  # Attendi 15 secondi per evitare 429 Too Many Requests
+sleep 15
 start_epic_services "BTCUSD"
-sleep 15  # Attendi 15 secondi per evitare 429 Too Many Requests
+sleep 15
 start_epic_services "GOLD"
+sleep 15
+start_epic_services "US500"
 
 echo "╔════════════════════════════════════════════════════════════════╗"
 echo "║  TUTTI I SERVIZI SONO STATI AVVIATI                            ║"

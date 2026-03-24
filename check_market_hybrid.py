@@ -37,6 +37,8 @@ MARKET_TYPE_MAP = {
     'AUDUSD': 'forex', 'USDCAD': 'forex', 'USDCHF': 'forex',
     # Crypto
     'BTCUSD': 'crypto', 'ETHUSD': 'crypto', 'XRPUSD': 'crypto',
+    # US Indices
+    'US500': 'index_us', 'US30': 'index_us', 'US100': 'index_us',
     # US Stocks
     'AAPL': 'stocks_us', 'TSLA': 'stocks_us', 'NVDA': 'stocks_us',
     'MSFT': 'stocks_us', 'GOOGL': 'stocks_us', 'AMZN': 'stocks_us',
@@ -269,10 +271,29 @@ def check_market_local(epic: str) -> dict:
             'provider': 'local'
         }
     
+    # US Indices (US500, US30, US100): CME futures 01:00-21:15 UTC Mon-Fri
+    if market_type == 'index_us':
+        current_time = now.time()
+        if time(1, 0) <= current_time <= time(21, 15):
+            return {
+                'is_open': True,
+                'status': 'OPEN',
+                'message': f'{epic}: Index US - mercato aperto',
+                'provider': 'local'
+            }
+        else:
+            return {
+                'is_open': False,
+                'status': 'CLOSED',
+                'message': f'{epic}: Index US - fuori orario (01:00-21:15 UTC)',
+                'reason': 'After hours',
+                'provider': 'local'
+            }
+
     # Stocks: verifica orari di borsa
     if market_type in ['stocks_us', 'stocks_uk']:
         current_time = now.time()
-        
+
         if market_type == 'stocks_us':
             # NYSE: 14:30-21:00 UTC
             market_open = time(14, 30)
@@ -281,7 +302,7 @@ def check_market_local(epic: str) -> dict:
             # LSE: 08:00-16:30 UTC
             market_open = time(8, 0)
             market_close = time(16, 30)
-        
+
         if market_open <= current_time <= market_close:
             return {
                 'is_open': True,
