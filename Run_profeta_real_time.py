@@ -198,10 +198,11 @@ def run_scripts(current_time: datetime.datetime, config_path: str, epic: str):
     trade_csv = os.path.join(script_dir, f"Trading_live_data/dati-trading_{epic}.csv")
 
     # Download dati (non GPU-intensive, eseguiti senza lock)
+    train_candles = str(config["DATA"].getint("train_candles", fallback=8000))
     download_scripts = [
         [
             os.path.join(script_dir, "capital_data_download.py"),
-            train_csv, "8000", current_time.isoformat(),
+            train_csv, train_candles, current_time.isoformat(),
             "--config", config_path, "--epic", epic,
         ],
         [
