@@ -1,5 +1,5 @@
 #!/bin/bash
-# Start PROFETA services for EURUSD e BTCUSD
+# Start PROFETA services for EURUSD, BTCUSD, GOLD, US500
 # Tutti i log vengono salvati in ~/Profeta/logs/
 
 cd ~/Profeta
@@ -21,12 +21,12 @@ echo ""
 # Funzione per avviare servizi per una epic
 start_epic_services() {
     local epic=$1
-    local config="BKTEST/config-lstm-${epic}.ini"
-    
+    local config="configs/${epic}.ini"
+
     # Verifica config
     if [ ! -f "$config" ]; then
-        echo "⚠️  Config non trovato per $epic, uso backtest config"
-        config="BKTEST/config-lstm-backtest.ini"
+        echo "⚠️  Config non trovato per $epic: $config"
+        return 1
     fi
     
     echo "🚀 Avvio servizi per $epic..."
