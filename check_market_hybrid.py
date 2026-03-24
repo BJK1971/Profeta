@@ -239,14 +239,33 @@ def check_market_local(epic: str) -> dict:
             'provider': 'local'
         }
     
-    # Forex / Commodity: aperto 24/5
-    if market_type in ('forex', 'commodity'):
-        # Forex/Commodity apre Domenica 22:00 UTC, chiude Venerdì 22:00 UTC
-        label = 'Commodity' if market_type == 'commodity' else 'Forex'
+    # Commodity (GOLD, SILVER, OIL): aperto 23h/5gg con pausa giornaliera 20:59-22:00 UTC
+    if market_type == 'commodity':
+        from datetime import time as dtime
+        current_time_utc = now.time()
+        in_daily_break = dtime(20, 59) <= current_time_utc < dtime(22, 0)
+        if in_daily_break:
+            return {
+                'is_open': False,
+                'status': 'CLOSED',
+                'message': f'{epic}: Commodity - pausa giornaliera (20:59-22:00 UTC)',
+                'reason': 'daily_break_20:59-22:00_UTC',
+                'provider': 'local'
+            }
         return {
             'is_open': True,
             'status': 'OPEN',
-            'message': f'{epic}: {label} - mercato aperto',
+            'message': f'{epic}: Commodity - mercato aperto',
+            'provider': 'local'
+        }
+
+    # Forex: aperto 24/5
+    if market_type == 'forex':
+        # Forex apre Domenica 22:00 UTC, chiude Venerdì 22:00 UTC
+        return {
+            'is_open': True,
+            'status': 'OPEN',
+            'message': f'{epic}: Forex - mercato aperto',
             'provider': 'local'
         }
     

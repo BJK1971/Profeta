@@ -63,10 +63,10 @@ class CapitalDemoBroker:
         """
         Verifica lo stato del mercato per un dato epic usando Capital.com API.
         Strategia: Controlla se ci sono prezzi recenti.
-        
+
         Args:
             epic: Strumento da verificare (es: EURUSD, BTCUSD)
-            
+
         Returns:
             dict: {
                 'is_open': bool,
@@ -76,15 +76,15 @@ class CapitalDemoBroker:
             }
         """
         from datetime import datetime, timedelta
-        
+
         # Usa endpoint prices - Capital.com richiede parametri specifici
         url = f"{self.base_url}prices/{epic}"
-        
+
         # Capital.com ha un limite di 400 ore per richiesta
         # Per market check, prendiamo solo ultime 6 ore
         now = datetime.now(timezone.utc)
         from_time = now - timedelta(hours=6)
-        
+
         # Parametri per Capital.com API
         params = {
             'resolution': 'MINUTE',
@@ -92,11 +92,11 @@ class CapitalDemoBroker:
             'to': now.strftime('%Y-%m-%dT%H:%M:%S'),
             'max': '5'  # Solo ultimi 5 prezzi
         }
-        
+
         try:
             # Usa params invece di URL-encoded manuale
             response = requests.get(url, headers=self.headers, params=params)
-            
+
             if response.status_code == 404:
                 self.logger.warning(f"Epic {epic} non trovato su Capital.com")
                 return {
@@ -107,11 +107,11 @@ class CapitalDemoBroker:
                     'bid': None,
                     'offer': None
                 }
-            
+
             response.raise_for_status()
             data = response.json()
             prices = data.get('prices', [])
-            
+
             if not prices or len(prices) == 0:
                 result = {
                     'is_open': False,
@@ -123,13 +123,13 @@ class CapitalDemoBroker:
                 }
                 self.logger.info(result['message'])
                 return result
-            
+
             # Prendi l'ultimo prezzo
             last_price = prices[-1]
             bid = last_price.get('closePrice', {}).get('bid')
             ask = last_price.get('closePrice', {}).get('ask')
             snapshot_time = last_price.get('snapshotTimeUTC', '')
-            
+
             # Verifica se il prezzo è recente (ultimi 30 minuti)
             try:
                 price_time = datetime.fromisoformat(snapshot_time.replace('Z', '+00:00'))
@@ -137,7 +137,7 @@ class CapitalDemoBroker:
                 is_recent = time_diff.total_seconds() < 1800  # 30 minuti
             except:
                 is_recent = False
-            
+
             # Determina se mercato aperto
             is_open = False
             if bid and ask and bid > 0 and ask > 0 and is_recent:
@@ -148,7 +148,7 @@ class CapitalDemoBroker:
                     status_msg = f"Mercato {epic}: CHIUSO (prezzi vecchi di {time_diff.total_seconds()/60:.0f} min)"
                 else:
                     status_msg = f"Mercato {epic}: CHIUSO (dati non disponibili)"
-            
+
             result = {
                 'is_open': is_open,
                 'status': 'OPEN' if is_open else 'CLOSED',
@@ -158,10 +158,10 @@ class CapitalDemoBroker:
                 'offer': ask,
                 'last_update': snapshot_time
             }
-            
+
             self.logger.info(status_msg)
             return result
-            
+
         except requests.exceptions.HTTPError as he:
             self.logger.error(f"Errore HTTP check mercato {epic}: {he}")
             return {
@@ -323,11 +323,11 @@ class CapitalDemoBroker:
         """Chiude le posizioni dell'asset specifiato richiamando il DELETE."""
         positions = self.get_open_positions()
         closed_count = 0
-        
+
         for pos in positions:
             market = pos.get("market", {})
             position_epic = market.get("epic", "")
-            
+
             if epic is None or position_epic == epic:
                 pos_details = pos.get("position", {})
                 deal_id = pos_details.get("dealId")
@@ -345,7 +345,7 @@ class CapitalDemoBroker:
                         self.logger.error(f"Errore HTTP chiusura {deal_id}: {he}")
                     except Exception as e:
                         self.logger.error(f"Errore in chiusura {deal_id}: {e}")
-                        
+
         return True if closed_count > 0 else False
 
 
@@ -373,7 +373,7 @@ class ProfetaTradingBot:
             force=True  # Forza reset configurazione precedente
         )
         self.logger = logging.getLogger("ProfetaTradingBot")
-        
+
         # Percorso previsioni (renderlo epic-aware)
         base_path = self.config["PREDICTION"].get("output_predictions_path", "./PREVISIONI/real_time_ens_hours.csv")
         if self.epic and self.epic not in base_path:
@@ -403,7 +403,7 @@ class ProfetaTradingBot:
 
         sl_key = f"sl_pts_{self.epic}"
         self.sl_pts = self.config["CAPITAL_DEMO"].getfloat(sl_key, fallback=self.config["CAPITAL_DEMO"].getfloat("sl_pts", 2000))
-        
+
         tp_key = f"tp_pts_{self.epic}"
         self.tp_pts = self.config["CAPITAL_DEMO"].getfloat(tp_key, fallback=self.config["CAPITAL_DEMO"].getfloat("tp_pts", 4000))
 
@@ -416,7 +416,7 @@ class ProfetaTradingBot:
             market_info = self.broker.get_market_info(self.epic)
             if market_info and "dealingRules" in market_info:
                 rules = market_info["dealingRules"]
-                
+
                 # Size Adeguamento
                 min_deal_size = rules.get("minDealSize", {}).get("value")
                 if min_deal_size is not None:
@@ -425,23 +425,41 @@ class ProfetaTradingBot:
                     if self.trade_size < min_deal_size:
                         self.logger.warning(f"La size configurata ({self.trade_size}) è minore del minimo. Adeguamento a {min_deal_size}")
                         self.trade_size = min_deal_size
-                
-                # SL / TP: usa i valori dalla config senza override automatici.
-                # I valori sono già calibrati per ottenere ~50€ SL e ~100€ TP per asset.
-                        
+
+                # SL / TP Adeguamento
+                min_stop_dist_raw = rules.get("minNormalStopOrLimitDistance", {})
+                self.logger.info(f"API Capital.com minNormalStopOrLimitDistance per {self.epic}: {min_stop_dist_raw}")
+                min_stop_dist = min_stop_dist_raw.get("value") if isinstance(min_stop_dist_raw, dict) else None
+                if min_stop_dist is not None:
+                    min_stop_dist = float(min_stop_dist)
+                    self.logger.info(f"API Capital.com riporta minNormalStopOrLimitDistance = {min_stop_dist} per {self.epic}")
+
+                    if self.sl_pts > 100 and min_stop_dist < 1:
+                        # Fallback di sicurezza: se abbiamo configurato "2000" ma l'asset usa decimali (Forex)
+                        self.logger.warning(f"La SL configurata ({self.sl_pts}) sembra essere in formato Crypto (punti crudi), ma l'API usa {min_stop_dist}. Forza adeguamento intelligente.")
+                        self.sl_pts = min_stop_dist * 2.0  # Usiamo il doppio del minimo come safe stop
+
+                    if self.sl_pts < min_stop_dist:
+                        self.logger.warning(f"La SL configurata ({self.sl_pts}) è minore del minimo consentito. Adeguamento a {min_stop_dist}")
+                        self.sl_pts = min_stop_dist
+
+                    if self.tp_pts < min_stop_dist or self.tp_pts > 100:
+                        self.logger.warning(f"Forzatura TP adeguato al mercato.")
+                        self.tp_pts = min_stop_dist * 4.0 # Fallback dinamico
+
         except Exception as e:
             self.logger.error(f"Errore nel recupero dinamico info mercato: {e}")
         # -------------------------------------------------------------
-        
+
 
     def run_cycle(self):
         """Legge periodicamente l'ultimo file CSV dell'ensemble."""
-        
+
         # --- MARKET CHECK: Verifica se mercato è aperto ---
         try:
             config_path = self.config_path if hasattr(self, 'config_path') else 'BKTEST/config-lstm-backtest.ini'
             market_result = check_market_status(self.epic, config_path)
-            
+
             if not market_result['is_open']:
                 reason = market_result.get('reason', 'Motivo sconosciuto')
                 self.logger.info(f"❌ Mercato {self.epic}: CHIUSO ({reason}) - Skip trading cycle")
@@ -450,7 +468,7 @@ class ProfetaTradingBot:
                 self.logger.debug(f"✅ Mercato {self.epic}: APERTO")
         except Exception as e:
             self.logger.warning(f"Errore market check: {e} - procedo comunque")
-        
+
         # --- Re-auth preventivo ogni 8 minuti (token Capital.com scadono ~10 min) ---
         if time.time() - self.last_auth_time > 480:
             self.logger.debug("Re-autenticazione preventiva token Capital.com...")
@@ -462,7 +480,7 @@ class ProfetaTradingBot:
             self.broker.get_accounts()
         except Exception:
             pass
-            
+
         # --- Monitoraggio P/L Posizioni Aperte ---
         epic_position_open = self.last_position_open  # Default: assume invariato se errore di rete
         try:
@@ -509,7 +527,7 @@ class ProfetaTradingBot:
         try:
             # Carica in poling le previsioni appena sfornate
             df = pd.read_csv(self.predictions_path)
-            
+
             if df.empty:
                 return
 
@@ -546,7 +564,7 @@ class ProfetaTradingBot:
                         last_row = df.iloc[-1]
                 else:
                     last_row = df.iloc[-1]
-            
+
             # Catturiamo il timestamp del momento base (riga 0) per tracciare il "ciclo",
             # altrimenti il bot eseguirebbe trade continui per un semplice scostamento del best horizon.
             if "timestamp" in df.columns:
@@ -559,15 +577,15 @@ class ProfetaTradingBot:
             if current_tms == self.last_processed_tms:
                 # Silenzioso se il ciclo temporale "base" non evolve
                 return
-            
+
             self.last_processed_tms = current_tms
-            
+
             # Parametri dalla predizione
             try:
                 predicted_val = float(last_row.get("predicted_value", 0))
                 change_pct = float(last_row.get("change_pct", 0))
                 direction = int(last_row.get("direction", 0)) # 1 (BUY), -1 (SELL), 0 (HOLD)
-                
+
                 # Check soglia
                 diff_from_limit = abs(change_pct) - self.activation_threshold
                 check_status = "OK" if abs(change_pct) > self.activation_threshold else "SOTTO SOGLIA"
@@ -581,7 +599,7 @@ class ProfetaTradingBot:
             self.logger.info(f"  > Direzione Modello: {'LONG' if direction==1 else 'SHORT' if direction==-1 else 'HOLD'}")
 
             # Logic: usa la predizione di change_pct combinata con la direzione del modello
-            
+
             # --- Inibizione Ordini Duplicati ---
             # Controlliamo la direzione netta voluta
             target_direction_str = None
@@ -589,7 +607,7 @@ class ProfetaTradingBot:
                 target_direction_str = "BUY"
             elif direction == -1 and abs(change_pct) > self.activation_threshold:
                 target_direction_str = "SELL"
-                
+
             if target_direction_str:
                 # Controlla cosa bolle in pentola su Capital.com
                 open_pos = self.broker.get_open_positions()
@@ -617,12 +635,16 @@ class ProfetaTradingBot:
             # Buy se la direzione è UP (1) e il cambiamento stimato supera la soglia di attivazione
             if target_direction_str == "BUY":
                  self.logger.info("SEGNALE LONG SCATTATO: Esecuzione ordine di BUY a Mercato")
-                 self.broker.place_market_order(self.epic, "BUY", self.trade_size, self.sl_pts, self.tp_pts)
+                 result = self.broker.place_market_order(self.epic, "BUY", self.trade_size, self.sl_pts, self.tp_pts)
+                 if result is None:
+                     self.last_processed_tms = None  # Forza retry al prossimo ciclo
 
             # Sell se la direzione è DOWN (-1) e la magnitudo del crollo stimato (-change_pct) supera la soglia
             elif target_direction_str == "SELL":
                  self.logger.info("SEGNALE SHORT SCATTATO: Esecuzione ordine di SELL (Short) a Mercato")
-                 self.broker.place_market_order(self.epic, "SELL", self.trade_size, self.sl_pts, self.tp_pts)
+                 result = self.broker.place_market_order(self.epic, "SELL", self.trade_size, self.sl_pts, self.tp_pts)
+                 if result is None:
+                     self.last_processed_tms = None  # Forza retry al prossimo ciclo
             else:
                  self.logger.info(f"Il Modello Consiglia HOLD: direzione {direction} o delta perc {change_pct*100:.5f}% sotto soglia.")
 
@@ -638,12 +660,12 @@ def main():
     parser.add_argument('--config', default="./BKTEST/config-lstm-backtest.ini", help='Config file path')
     parser.add_argument('--epic', help='Override asset Epic (e.g. BTCUSD)')
     args = parser.parse_args()
-    
+
     bot = ProfetaTradingBot(args.config, epic_override=args.epic)
-    
+
     bot.logger.info(f"Profeta Live Bot Inizializzato per {bot.epic} (Modalità Daemone). Ascolto predizioni...")
     print("---------------------------------------------------------------")
-    
+
     while True:
         bot.run_cycle()
         time.sleep(30) # Poll ogni 30 secondi in cron
